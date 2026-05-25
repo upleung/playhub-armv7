@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.tvbox.web.model.ConfigPayload;
 import com.tvbox.web.model.SiteDefinition;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -18,6 +20,7 @@ import java.util.regex.Pattern;
 @Service
 public class TvboxFacadeService {
 
+    private static final Logger log = LoggerFactory.getLogger(TvboxFacadeService.class);
     private static final Pattern PLAY_URL_PREFIX_PATTERN = Pattern.compile("^[^,，]{1,30}[,，](.+)$");
 
     private final ConfigService configService;
@@ -73,17 +76,37 @@ public class TvboxFacadeService {
     }
 
     public JsonNode home(String sessionId, String key, boolean filter) {
+        long t0 = System.currentTimeMillis();
+        DiagLog.step(log, "FAC home 开始  key=" + key);
         SiteDefinition site = getSite(sessionId, key);
+        DiagLog.step(log, "FAC home getSite完成  type=" + site.getType() + " api=" + site.getApi(), t0);
         if (site.getType() == 3) {
+            DiagLog.step(log, "FAC home 走JAR爬虫路径", t0);
             JsonNode home;
             try {
                 home = jarSpiderService.home(sessionId, site, filter);
+                DiagLog.step(log, "FAC home jarSpiderService.home 返回", t0);
             } catch (Throwable ex) {
                 home = JsonNodeFactory.instance.objectNode();
+                DiagLog.step(log, "FAC home jarSpiderService.home 异常: " + ex.getMessage(), t0);
+                // Guard spider NPE fallback: try HTTP direct
+                if (hasApiUrl(site)) {
+                    DiagLog.step(log, "FAC home JAR失败, 尝试HTTP直连回退", t0);
+                    try {
+                        JsonNode httpHome = httpSourceService.request(site, new LinkedHashMap<>());
+                        if (isHomeUsable(httpHome)) {
+                            DiagLog.step(log, "FAC home HTTP回退成功", t0);
+                            return httpHome;
+                        }
+                    } catch (Throwable ignore) {
+                    }
+                }
             }
             if (isHomeUsable(home)) {
+                DiagLog.step(log, "FAC home JAR结果可用, 直接返回", t0);
                 return home;
             }
+            DiagLog.step(log, "FAC home JAR结果不可用, 走category兜底", t0);
             ObjectNode fallbackHome = JsonNodeFactory.instance.objectNode();
             fallbackHome.set("class", defaultClasses());
             for (String tid : List.of("1", "2", "3", "4", "5", "6")) {
@@ -96,18 +119,47 @@ public class TvboxFacadeService {
                             arr.add(item);
                         }
                         fallbackHome.set("list", arr);
+                        DiagLog.step(log, "FAC home category兜底成功 tid=" + tid, t0);
                         return fallbackHome;
                     }
                 } catch (Throwable ignore) {
                 }
             }
+            // Final HTTP fallback for category too
+            if (hasApiUrl(site)) {
+                for (String tid : List.of("1", "2", "3", "4")) {
+                    try {
+                        Map<String, String> params = new LinkedHashMap<>();
+                        params.put("ac", "videolist");
+                        params.put("t", tid);
+                        params.put("pg", "1");
+                        JsonNode cat = httpSourceService.request(site, params);
+                        List<JsonNode> list = extractList(cat);
+                        if (!list.isEmpty()) {
+                            ArrayNode arr = JsonNodeFactory.instance.arrayNode();
+                            for (JsonNode item : list) arr.add(item);
+                            fallbackHome.set("list", arr);
+                            DiagLog.step(log, "FAC home HTTP category回退成功 tid=" + tid, t0);
+                            return fallbackHome;
+                        }
+                    } catch (Throwable ignore) {}
+                }
+            }
             fallbackHome.set("list", JsonNodeFactory.instance.arrayNode());
+            DiagLog.step(log, "FAC home 所有回退失败, 返回空", t0);
             return fallbackHome;
         }
         if (site.getType() == 4) {
+            DiagLog.step(log, "FAC home 走HTTP type=4路径", t0);
             return httpSourceService.request(site, mapOf("ac", "detail", "filter", String.valueOf(filter)));
         }
+        DiagLog.step(log, "FAC home 走HTTP默认路径", t0);
         return httpSourceService.request(site, new LinkedHashMap<>());
+    }
+
+    private boolean hasApiUrl(SiteDefinition site) {
+        return StringUtils.hasText(site.getApi())
+                && (site.getApi().startsWith("http://") || site.getApi().startsWith("https://"));
     }
 
     public JsonNode category(String key, String tid, String pg, boolean filter, Map<String, String> extend) {
@@ -182,14 +234,18 @@ public class TvboxFacadeService {
                     ObjectNode row;
                     if (item != null && item.isObject()) {
                         row = ((ObjectNode) item).deepCopy();
+                        row.put("source_uid", site.getUid());
+                        row.put("source_key", site.getApi());
+                        row.put("source_name", site.getName());
+                        row.put("source_type", site.getType());
                     } else {
                         row = JsonNodeFactory.instance.objectNode();
                         row.set("raw", item);
+                        row.put("source_uid", site.getUid());
+                        row.put("source_key", site.getApi());
+                        row.put("source_name", site.getName());
+                        row.put("source_type", site.getType());
                     }
-                    row.put("source_uid", site.getUid());
-                    row.put("source_key", site.getApi());
-                    row.put("source_name", site.getName());
-                    row.put("source_type", site.getType());
                     list.add(row);
                 }
             } catch (Throwable ex) {
@@ -310,15 +366,25 @@ public class TvboxFacadeService {
             return input;
         }
         String url = input.trim();
-        Matcher matcher = PLAY_URL_PREFIX_PATTERN.matcher(url);
-        if (!matcher.matches()) {
+
+        // Direct URL — return as-is
+        if (startsWithPlayableScheme(url) && url.contains("/")) {
             return url;
         }
 
-        String candidate = matcher.group(1).trim();
-        if (startsWithPlayableScheme(candidate)) {
-            return candidate;
+        // Split by TVBox separator characters and find the URL part
+        String[] separators = {"@", ",", "，", "#", "|", ";", "~"};
+        for (String sep : separators) {
+            if (!url.contains(sep)) continue;
+            String[] parts = url.split(Pattern.quote(sep));
+            for (String part : parts) {
+                String trimmed = part.trim();
+                if (!trimmed.isEmpty() && startsWithPlayableScheme(trimmed) && trimmed.contains("/")) {
+                    return trimmed;
+                }
+            }
         }
+
         return url;
     }
 

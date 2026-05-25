@@ -373,6 +373,38 @@ button {
   background: rgba(214, 170, 87, 0.08);
 }
 
+/* Strict search toggle */
+.strict-search-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  margin-left: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  color: #94a3b8;
+  border: 1px solid rgba(148,163,184,0.2);
+  background: rgba(148,163,184,0.06);
+  transition: all 0.2s;
+  user-select: none;
+}
+.strict-search-toggle:hover {
+  border-color: rgba(239,68,68,0.4);
+  color: #ef4444;
+}
+.strict-search-toggle input[type="checkbox"] {
+  display: none;
+}
+.strict-search-toggle:has(input:checked) {
+  color: #ef4444;
+  border-color: rgba(239,68,68,0.5);
+  background: rgba(239,68,68,0.12);
+}
+.strict-search-toggle:has(input:checked) span::before {
+  content: '✓ ';
+}
+
 .category-pill,
 .line-pill {
   border: 1px solid var(--line);
@@ -1107,6 +1139,91 @@ html[data-theme='naifei'] .player-back-btn:hover {
   gap: 12px;
   align-items: center;
   justify-content: flex-start;
+}
+
+/* Config URL History */
+.config-history-list {
+  margin: 10px 0 0;
+  border: 1px solid var(--border-color, rgba(255,255,255,0.08));
+  border-radius: 12px;
+  overflow: hidden;
+}
+.config-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: rgba(255,255,255,0.03);
+  border-bottom: 1px solid var(--border-color, rgba(255,255,255,0.06));
+}
+.config-history-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, #94a3b8);
+  letter-spacing: 0.5px;
+}
+.config-history-clear {
+  background: none;
+  border: none;
+  color: var(--text-muted, #64748b);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.config-history-clear:hover {
+  color: #ef4444;
+  background: rgba(239,68,68,0.1);
+}
+.config-history-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  transition: background 0.15s;
+}
+.config-history-item:last-child {
+  border-bottom: none;
+}
+.config-history-item:hover {
+  background: rgba(255,255,255,0.05);
+}
+.config-history-item--active {
+  background: rgba(99,179,237,0.12);
+}
+.config-history-url {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-primary, #e2e8f0);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: 'SF Mono', 'Cascadia Code', monospace;
+}
+.config-history-remove {
+  flex: none;
+  background: none;
+  border: none;
+  color: #64748b;
+  font-size: 16px;
+  cursor: pointer;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+.config-history-item:hover .config-history-remove {
+  opacity: 1;
+}
+.config-history-remove:hover {
+  color: #ef4444;
+  background: rgba(239,68,68,0.12);
 }
 
 .settings-radio-group {

@@ -20,17 +20,6 @@ const HISTORY_KEY = 'tvbox:web:history'
 const CONFIG_HISTORY_KEY = 'tvbox:web:config-history'
 const MAX_CONFIG_HISTORY = 10
 
-function configHistoryKey(url) {
-  const raw = String(url || '').trim()
-  if (!raw) return HISTORY_KEY
-  // Simple hash: sum char codes mod large prime, base36
-  let h = 0
-  for (let i = 0; i < raw.length; i++) {
-    h = ((h << 5) - h + raw.charCodeAt(i)) | 0
-  }
-  return `${HISTORY_KEY}:${Math.abs(h).toString(36)}`
-}
-
 function readStorage(key, fallback) {
   try {
     const raw = localStorage.getItem(key)
@@ -321,7 +310,7 @@ export const useTvboxStore = defineStore('tvbox', () => {
   }
 
   function persistHistory() {
-    writeStorage(configHistoryKey(configUrl.value), history.value.slice(0, 120))
+    writeStorage(HISTORY_KEY, history.value.slice(0, 120))
   }
 
   function setStatus(type, text) {
@@ -334,6 +323,7 @@ export const useTvboxStore = defineStore('tvbox', () => {
 
   function restoreLocalState() {
     const savedSettings = readStorage(SETTINGS_KEY, {})
+    const savedHistory = readStorage(HISTORY_KEY, [])
     configUrl.value = savedSettings.configUrl || ''
     appTheme.value = savedSettings.appTheme || 'default'
     selectedSourceUid.value = savedSettings.selectedSourceUid || ''
@@ -341,8 +331,6 @@ export const useTvboxStore = defineStore('tvbox', () => {
     strictSearch.value = savedSettings.strictSearch || false
     liveSourceUrl.value = savedSettings.liveSourceUrl || ''
     liveEpgUrl.value = savedSettings.liveEpgUrl || ''
-    // Load history for the current config
-    const savedHistory = readStorage(configHistoryKey(configUrl.value), [])
     history.value = Array.isArray(savedHistory) ? savedHistory : []
     configHistory.value = readStorage(CONFIG_HISTORY_KEY, [])
   }
@@ -538,22 +526,6 @@ export const useTvboxStore = defineStore('tvbox', () => {
 
   function clearCurrentPlayback() {
     currentPlayback.value = null
-  }
-
-  function setCurrentPlaybackQuick(partial) {
-    currentPlayback.value = {
-      sourceUid: partial.sourceUid || '',
-      vodId: partial.vodId || '',
-      title: partial.detail?.title || '',
-      poster: partial.detail?.pic || '',
-      detail: partial.detail || null,
-      flagName: partial.flagName || '',
-      episodeIndex: partial.episodeIndex ?? 0,
-      episodeName: partial.episodeName || '',
-      episodeId: partial.episodeId || '',
-      url: partial.url || '',
-      playPayload: null,
-    }
   }
 
   function updateLiveSettings(nextSettings = {}) {
@@ -772,9 +744,6 @@ export const useTvboxStore = defineStore('tvbox', () => {
       clearDetailCache()
       clearCurrentDetail()
       clearCurrentPlayback()
-      // Switch to history for this config
-      const savedHistory = readStorage(configHistoryKey(normalizedUrl), [])
-      history.value = Array.isArray(savedHistory) ? savedHistory : []
       setStatus('success', `配置加载成功，已识别 ${sources.value.length} 个源`)
 
       if (options.autoLoadHome !== false && selectedSourceUid.value) {
@@ -1036,20 +1005,17 @@ export const useTvboxStore = defineStore('tvbox', () => {
   }
 
   async function ensureDetail(sourceUid, vodId, options = {}) {
-    console.log('[ensureDetail] sourceUid=' + sourceUid + ' vodId=' + vodId + ' force=' + options.force)
     if (!sourceUid || !vodId) {
       return null
     }
 
     const cacheKey = historyKeyOf(sourceUid, vodId)
     if (!options.force && detailCache[cacheKey]) {
-      console.log('[ensureDetail] cache hit')
       currentDetail.value = detailCache[cacheKey]
       return detailCache[cacheKey]
     }
 
     const source = sources.value.find((site) => site.uid === sourceUid)
-    console.log('[ensureDetail] source=' + !!source + ' sources.count=' + sources.value.length)
     if (!source) {
       throw new Error(`找不到源：${sourceUid}`)
     }
@@ -1136,19 +1102,16 @@ export const useTvboxStore = defineStore('tvbox', () => {
   }
 
   async function playEpisode(sourceUid, vodId, flagName, episodeIndex, options = {}) {
-    const detailMatch = currentDetail.value?.sourceUid === sourceUid && currentDetail.value?.id === vodId
-    console.log('[playEpisode] detailMatch=' + detailMatch + ' currentDetail=' + !!currentDetail.value)
-    const detail = detailMatch
-      ? currentDetail.value
-      : await ensureDetail(sourceUid, vodId)
-    console.log('[playEpisode] detail=' + !!detail + ' title=' + detail?.title + ' groups=' + detail?.playGroups?.length)
+    const detail =
+      currentDetail.value?.sourceUid === sourceUid && currentDetail.value?.id === vodId
+        ? currentDetail.value
+        : await ensureDetail(sourceUid, vodId)
 
     const resolved = resolveEpisode(detail, {
       flagName,
       episodeIndex,
       useStoredResume: options.useStoredResume,
     })
-    console.log('[playEpisode] resolved=' + !!resolved + ' episode=' + resolved?.episode?.name)
     if (!resolved?.episode) {
       throw new Error('当前视频没有可播放的集数')
     }
@@ -1156,14 +1119,13 @@ export const useTvboxStore = defineStore('tvbox', () => {
     loading.player = true
     currentPlayback.value = null
     try {
-      const playUrl = `/api/source/${encodeURIComponent(sourceUid)}/play?flag=${encodeURIComponent(
-        resolved.group.name,
-      )}&id=${encodeURIComponent(resolved.episode.id)}`
-      console.log('[playEpisode] fetching: ' + playUrl)
-      const payload = await getJson(playUrl, { timeout: 45000 })
-      console.log('[playEpisode] payload:', JSON.stringify(payload).substring(0, 200))
+      const payload = await getJson(
+        `/api/source/${encodeURIComponent(sourceUid)}/play?flag=${encodeURIComponent(
+          resolved.group.name,
+        )}&id=${encodeURIComponent(resolved.episode.id)}`,
+        { timeout: 45000 },
+      )
       const finalUrl = buildPlayableUrl(payload, resolved.episode.id)
-      console.log('[playEpisode] finalUrl=' + finalUrl?.substring(0, 100))
       currentPlayback.value = {
         sourceUid,
         vodId,
@@ -1281,7 +1243,6 @@ export const useTvboxStore = defineStore('tvbox', () => {
     playerOrigin,
     status,
     loading,
-    bootstrapped,
     showSourceBadges,
     bootstrap,
     clearStatus,
@@ -1308,7 +1269,6 @@ export const useTvboxStore = defineStore('tvbox', () => {
     loadMoreWall,
     clearCurrentDetail,
     clearCurrentPlayback,
-    setCurrentPlaybackQuick,
     setNavigationPreview,
     clearNavigationPreview,
     setDetailOrigin,

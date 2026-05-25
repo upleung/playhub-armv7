@@ -73,13 +73,13 @@ async function reloadConfig() {
 }
 
 // Auto-navigate home when config is loaded from any context
-// Skip if user is on player/detail page with valid route params (page refresh scenario)
+// Skip if user is on player page with a persisted playback (page refresh scenario)
 watch(
   () => store.config,
   (newConfig) => {
     if (!newConfig) return
-    if (route.name === 'player' && route.query.source && route.query.vod) return
-    if (route.name === 'detail' && route.query.source && route.query.vod) return
+    // Don't navigate away from player if we have a valid playback URL
+    if (route.name === 'player' && store.currentPlayback?.url) return
     if (route.name !== 'home') {
       router.push({ name: 'home' })
     }

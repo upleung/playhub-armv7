@@ -2,9 +2,10 @@ server:
   port: 18080
   tomcat:
     threads:
-      max: 48
-      min-spare: 4
-    accept-count: 24
+      max: 16
+      min-spare: 2
+    accept-count: 8
+    max-http-response-header-size: 8KB
 
 spring:
   jackson:
@@ -13,10 +14,19 @@ spring:
 
 app:
   cache-dir: .cache/tvbox
-  spider-bridge-url: ""
+  spider-bridge-url: "http://localhost:18081"
+  node-command: "node"
+  python-command: "C:\\Users\\Hurry\\AppData\\Roaming\\uv\\python\\cpython-3.14.4-windows-x86_64-none\\python.exe"
+
+bridge:
+  port: 18081
+  spider-jar-url: "https://ghfast.top/raw.githubusercontent.com/qist/tvbox/master/xiaosa/spider.jar"
+  cache-dir: ".cache/tvbox"
   spider-operation-timeout-seconds: 25
-  spider-operation-max-concurrency: 4
-  spider-operation-queue-capacity: 8
+  spider-operation-max-concurrency: 2
+  spider-operation-queue-capacity: 4
+  spider-cache-max-classloaders: 8
+  spider-cache-max-spiders: 32
   script-timeout-seconds: 90
   script-max-concurrency: 2
   script-admission-timeout-seconds: 3

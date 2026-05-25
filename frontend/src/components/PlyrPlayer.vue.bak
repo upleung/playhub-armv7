@@ -24,8 +24,6 @@ let seekDone = false
 let lastTimeupdate = 0
 let readyTimer = null
 let seekRetries = 0
-let networkRetries = 0
-const MAX_NETWORK_RETRIES = 3
 
 function clearReadyTimer() {
   if (readyTimer) {
@@ -95,19 +93,7 @@ function setupHls(video, url) {
   })
   hls.on(Hls.Events.LEVEL_LOADED, () => { loadingPercent.value = Math.max(loadingPercent.value, 46) })
   hls.on(Hls.Events.FRAG_LOADED, () => { loadingPercent.value = Math.min(92, Math.max(loadingPercent.value + 6, 52)) })
-  hls.on(Hls.Events.ERROR, (_, data) => {
-    if (!data?.fatal) return
-    if (data.type === Hls.ErrorTypes.NETWORK_ERROR && networkRetries < MAX_NETWORK_RETRIES) {
-      networkRetries++
-      setLoadingState(true, 10, `网络异常，正在重试 (${networkRetries}/${MAX_NETWORK_RETRIES})…`)
-      setTimeout(() => { if (hls) hls.startLoad() }, 1500 * networkRetries)
-      return
-    }
-    if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-      try { hls.recoverMediaError(); return } catch {}
-    }
-    handleError()
-  })
+  hls.on(Hls.Events.ERROR, (_, data) => { if (data?.fatal) handleError() })
 }
 
 function destroyPlayer() {
@@ -123,12 +109,12 @@ function buildPlayer() {
   seekDone = false
   lastTimeupdate = 0
   seekRetries = 0
-  networkRetries = 0
   setLoadingState(true, 4, '正在初始化播放器…')
 
   const isHls = /\.m3u8(\?|$)/i.test(props.url)
   const video = document.createElement('video')
   video.className = 'plyr-video'
+  video.crossOrigin = 'anonymous'
   video.playsInline = true
   if (props.poster) video.poster = props.poster
   containerRef.value.appendChild(video)
@@ -179,13 +165,6 @@ function buildPlayer() {
 watch(
   () => [props.url, props.poster],
   () => buildPlayer(),
-)
-
-watch(
-  () => props.initialTime,
-  (t) => {
-    if (t > 0 && plyr && !seekDone) doSeek()
-  },
 )
 
 onMounted(() => buildPlayer())

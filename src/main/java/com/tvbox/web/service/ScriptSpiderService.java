@@ -13,6 +13,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.FilterOutputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -30,6 +31,8 @@ import java.util.concurrent.TimeUnit;
 
 @Service
 public class ScriptSpiderService implements InitializingBean {
+
+    private static final int MAX_STDOUT_BYTES = 10 * 1024 * 1024;
 
     private final AppPathsService appPathsService;
     private final ConfigService configService;
@@ -96,7 +99,7 @@ public class ScriptSpiderService implements InitializingBean {
         }
 
         ObjectNode merged = home != null && home.isObject()
-                ? ((ObjectNode) home).deepCopy()
+                ? (ObjectNode) home
                 : objectMapper.createObjectNode();
         if (homeVod.isObject() && homeVod.has("list")) {
             merged.set("list", homeVod.get("list"));
@@ -134,22 +137,42 @@ public class ScriptSpiderService implements InitializingBean {
         ));
     }
 
-    private JsonNode execute(SiteDefinition site, String action, Map<String, Object> args) {
-        String api = site.getApi();
-        String lowerApi = api.toLowerCase();
-        if (lowerApi.endsWith(".py") || lowerApi.contains(".py?")) {
-            return executePython(site, action, args);
+    private String resolveScriptUrl(String rawUrl) {
+        if (rawUrl == null) return rawUrl;
+        // If already absolute, use as-is
+        if (rawUrl.startsWith("http://") || rawUrl.startsWith("https://")) return rawUrl;
+        // Resolve relative path against config base URL
+        String configUrl = configService.getConfigUrl();
+        if (configUrl != null && (configUrl.startsWith("http://") || configUrl.startsWith("https://"))) {
+            try {
+                URI configUri = URI.create(configUrl);
+                return configUri.resolve(rawUrl).toString();
+            } catch (Exception ignore) {}
         }
-        return executeNode(site, action, args);
+        // Last resort: prepend https if it looks like a domain path
+        if (rawUrl.startsWith("./") || rawUrl.startsWith("/")) {
+            return "https://" + rawUrl.replaceFirst("^\\./", "");
+        }
+        return rawUrl;
     }
 
-    private JsonNode executeNode(SiteDefinition site, String action, Map<String, Object> args) {
+    private JsonNode execute(SiteDefinition site, String action, Map<String, Object> args) {
+        String api = site.getApi();
+        String resolvedApi = resolveScriptUrl(api);
+        String lowerApi = api.toLowerCase();
+        if (lowerApi.endsWith(".py") || lowerApi.contains(".py?")) {
+            return executePython(site, action, args, resolvedApi);
+        }
+        return executeNode(site, action, args, resolvedApi);
+    }
+
+    private JsonNode executeNode(SiteDefinition site, String action, Map<String, Object> args, String resolvedApi) {
         try {
-            Path runtimePath = prepareJsRuntime(site.getApi());
+            Path runtimePath = prepareJsRuntime(resolvedApi);
             ObjectNode payload = objectMapper.createObjectNode();
             payload.put("action", action);
             payload.put("runtimePath", runtimePath.toAbsolutePath().toString());
-            payload.put("runtimeUrl", site.getApi());
+            payload.put("runtimeUrl", resolvedApi);
             payload.put("ext", site.getExtText());
             payload.put("siteKey", site.getKey() == null ? "" : site.getKey());
             payload.put("proxyUrl", proxyUrl());
@@ -167,9 +190,9 @@ public class ScriptSpiderService implements InitializingBean {
         }
     }
 
-    private JsonNode executePython(SiteDefinition site, String action, Map<String, Object> args) {
+    private JsonNode executePython(SiteDefinition site, String action, Map<String, Object> args, String resolvedApi) {
         try {
-            Path scriptPath = preparePythonScript(site.getApi());
+            Path scriptPath = preparePythonScript(resolvedApi);
             ObjectNode payload = objectMapper.createObjectNode();
             payload.put("action", action);
             payload.put("scriptPath", scriptPath.toAbsolutePath().toString());
@@ -258,9 +281,9 @@ public class ScriptSpiderService implements InitializingBean {
         processBuilder.environment().put("TVBOX_APP_BASE", appPathsService.getBaseDir().toString());
         try {
             Process process = processBuilder.start();
-            ByteArrayOutputStream stdoutBuffer = new ByteArrayOutputStream();
+            BoundedOutputStream stdoutBuf = new BoundedOutputStream(MAX_STDOUT_BYTES);
             ByteArrayOutputStream stderrBuffer = new ByteArrayOutputStream();
-            Thread stdoutThread = pumpStream(process.getInputStream(), stdoutBuffer);
+            Thread stdoutThread = pumpStream(process.getInputStream(), stdoutBuf);
             Thread stderrThread = pumpStream(process.getErrorStream(), stderrBuffer);
 
             try {
@@ -277,7 +300,7 @@ public class ScriptSpiderService implements InitializingBean {
 
                 stdoutThread.join(3000);
                 stderrThread.join(3000);
-                String stdout = stdoutBuffer.toString(StandardCharsets.UTF_8).trim();
+                String stdout = stdoutBuf.toString(StandardCharsets.UTF_8).trim();
                 String stderr = stderrBuffer.toString(StandardCharsets.UTF_8).trim();
 
                 if (process.exitValue() != 0) {
@@ -318,7 +341,7 @@ public class ScriptSpiderService implements InitializingBean {
         return node.has("list") && node.get("list").isArray() && !node.get("list").isEmpty();
     }
 
-    private Thread pumpStream(InputStream inputStream, ByteArrayOutputStream outputStream) {
+    private Thread pumpStream(InputStream inputStream, OutputStream outputStream) {
         Thread thread = new Thread(() -> {
             try (InputStream in = inputStream) {
                 in.transferTo(outputStream);
@@ -519,5 +542,44 @@ public class ScriptSpiderService implements InitializingBean {
             }
         }
         return "";
+    }
+
+    private static final class BoundedOutputStream extends FilterOutputStream {
+        private final int maxBytes;
+        private int written;
+
+        BoundedOutputStream(int maxBytes) {
+            super(new ByteArrayOutputStream());
+            this.maxBytes = maxBytes;
+        }
+
+        @Override
+        public void write(int b) throws IOException {
+            checkSize(1);
+            out.write(b);
+            written++;
+        }
+
+        @Override
+        public void write(byte[] b, int off, int len) throws IOException {
+            checkSize(len);
+            out.write(b, off, len);
+            written += len;
+        }
+
+        private void checkSize(int incoming) throws IOException {
+            if (written + incoming > maxBytes) {
+                throw new IOException("script stdout exceeded " + maxBytes + " bytes");
+            }
+        }
+
+        @Override
+        public String toString() {
+            return out.toString();
+        }
+
+        String toString(java.nio.charset.Charset charset) {
+            return ((ByteArrayOutputStream) out).toString(charset);
+        }
     }
 }

@@ -152,6 +152,145 @@ public class Init {
         submitAsync(runnable, Math.max(0, delayMillis));
     }
 
+    public static com.github.catvod.crawler.Spider getSpider(String name) {
+        System.err.println("[Init.getSpider] called with name=" + name);
+        return new HttpSpider(name);
+    }
+
+    public static com.github.catvod.crawler.Spider getSpider(String name, String ext) {
+        System.err.println("[Init.getSpider] called with name=" + name + " ext=" + (ext != null ? ext.substring(0, Math.min(ext.length(), 60)) : "null"));
+        return new HttpSpider(name, ext);
+    }
+
+    public static com.github.catvod.crawler.Spider getSpider(String name, String ext, String jar) {
+        System.err.println("[Init.getSpider] called with name=" + name + " ext=" + (ext != null ? ext.substring(0, Math.min(ext.length(), 60)) : "null") + " jar=" + jar);
+        return new HttpSpider(name, ext);
+    }
+
+    /**
+     * Minimal HTTP spider that makes direct API requests.
+     * URL is set via init(ext) or the constructor — the Guard spider
+     * calls getSpider(className) first, then init(ctx, apiUrl) later.
+     */
+    private static class HttpSpider extends com.github.catvod.crawler.Spider {
+        private volatile String apiUrl;
+        private final java.net.http.HttpClient client;
+
+        HttpSpider(String url) {
+            // url might be a class name (from getSpider) — init() will set the real URL
+            this.apiUrl = (url != null && (url.startsWith("http://") || url.startsWith("https://"))) ? url : "";
+            this.client = java.net.http.HttpClient.newBuilder()
+                    .connectTimeout(java.time.Duration.ofSeconds(10))
+                    .followRedirects(java.net.http.HttpClient.Redirect.NORMAL)
+                    .build();
+        }
+
+        HttpSpider(String url, String ext) {
+            this(url);
+            if (ext != null && (ext.startsWith("http://") || ext.startsWith("https://"))) {
+                this.apiUrl = ext;
+            }
+        }
+
+        @Override
+        public void init(android.content.Context context) {
+            super.init(context);
+        }
+
+        @Override
+        public void init(android.content.Context context, String ext) {
+            super.init(context, ext);
+            // Guard spiders pass the real API URL via ext
+            if (ext != null && (ext.startsWith("http://") || ext.startsWith("https://"))) {
+                this.apiUrl = ext;
+                System.err.println("[HttpSpider] URL updated via init: " + ext.substring(0, Math.min(ext.length(), 80)));
+            }
+        }
+
+        private boolean hasUrl() {
+            return apiUrl != null && !apiUrl.isEmpty()
+                    && (apiUrl.startsWith("http://") || apiUrl.startsWith("https://"));
+        }
+
+        private String httpGet(String baseUrl, java.util.Map<String, String> params) {
+            if (!hasUrl() && baseUrl != null && (baseUrl.startsWith("http://") || baseUrl.startsWith("https://"))) {
+                apiUrl = baseUrl;
+            }
+            if (!hasUrl()) return "{}";
+            try {
+                StringBuilder sb = new StringBuilder(apiUrl);
+                if (params != null && !params.isEmpty()) {
+                    sb.append(apiUrl.contains("?") ? "&" : "?");
+                    for (var e : params.entrySet()) {
+                        if (e.getValue() == null) continue;
+                        sb.append(e.getKey()).append("=")
+                          .append(java.net.URLEncoder.encode(e.getValue(), "UTF-8")).append("&");
+                    }
+                }
+                var req = java.net.http.HttpRequest.newBuilder(java.net.URI.create(sb.toString()))
+                        .header("User-Agent", "okhttp/3.15")
+                        .timeout(java.time.Duration.ofSeconds(20))
+                        .GET().build();
+                var resp = client.send(req, java.net.http.HttpResponse.BodyHandlers.ofString());
+                if (resp.statusCode() >= 200 && resp.statusCode() < 300) {
+                    return resp.body();
+                }
+                return "{}";
+            } catch (Exception e) {
+                return "{}";
+            }
+        }
+
+        @Override
+        public String homeContent(boolean filter) {
+            var params = new java.util.HashMap<String, String>();
+            return httpGet(apiUrl, params);
+        }
+
+        @Override
+        public String homeVideoContent() {
+            var params = new java.util.HashMap<String, String>();
+            params.put("ac", "videolist");
+            return httpGet(apiUrl, params);
+        }
+
+        @Override
+        public String categoryContent(String tid, String pg, boolean filter, java.util.HashMap<String, String> extend) {
+            var params = new java.util.LinkedHashMap<String, String>();
+            params.put("ac", "detail");
+            params.put("t", tid != null ? tid : "");
+            params.put("pg", pg != null ? pg : "1");
+            if (extend != null) params.putAll(extend);
+            return httpGet(apiUrl, params);
+        }
+
+        @Override
+        public String detailContent(java.util.List<String> ids) {
+            var params = new java.util.LinkedHashMap<String, String>();
+            params.put("ac", "detail");
+            params.put("ids", ids != null && !ids.isEmpty() ? String.join(",", ids) : "");
+            return httpGet(apiUrl, params);
+        }
+
+        @Override
+        public String searchContent(String key, boolean quick) {
+            var params = new java.util.LinkedHashMap<String, String>();
+            params.put("ac", "detail");
+            params.put("wd", key != null ? key : "");
+            if (quick) params.put("quick", "1");
+            return httpGet(apiUrl, params);
+        }
+
+        @Override
+        public String playerContent(String flag, String id, java.util.List<String> vipFlags) {
+            var params = new java.util.LinkedHashMap<String, String>();
+            params.put("ac", "detail");
+            params.put("play", id != null ? id : "");
+            if (flag != null && !flag.isEmpty()) params.put("flag", flag);
+            return httpGet(apiUrl, params);
+        }
+    }
+
     public static void startFloatBall() {
     }
 

@@ -45,6 +45,7 @@ public class LiveSourceService {
 
     private static final Duration CACHE_TTL = Duration.ofMinutes(6);
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(25);
+    private static final int MAX_CACHE_ENTRIES = 4;
     private static final Pattern ATTRIBUTE_PATTERN =
             Pattern.compile("([A-Za-z0-9_-]+)=\"([^\"]*)\"|([A-Za-z0-9_-]+)=([^\\s,]+)");
     private static final DateTimeFormatter XMLTV_DATE_TIME =
@@ -57,7 +58,7 @@ public class LiveSourceService {
             new DateTimeFormatterBuilder().appendPattern("yyyyMMddHHmm Z").toFormatter(Locale.ROOT);
 
     private final HttpClient httpClient;
-    private final Map<String, CacheEntry> cache = new ConcurrentHashMap<>();
+    private final BoundedCache<String, CacheEntry> cache = new BoundedCache<>(MAX_CACHE_ENTRIES);
 
     public LiveSourceService() {
         this.httpClient = HttpClient.newBuilder()

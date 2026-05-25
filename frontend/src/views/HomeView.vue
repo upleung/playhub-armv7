@@ -253,6 +253,10 @@ onBeforeUnmount(() => {
             <button type="button" @click="store.searchKeyword = ''">清空</button>
             <button type="button" @click="handleSearch">远程搜索</button>
             <button type="button" @click="deleteSearchKey">删除</button>
+            <label class="naifei-strict-toggle" title="严格匹配名称">
+              <input type="checkbox" v-model="store.strictSearch" @change="store.persistSettings()" />
+              <span>严格</span>
+            </label>
           </div>
 
           <div class="naifei-keyboard">
@@ -375,6 +379,10 @@ onBeforeUnmount(() => {
             <span class="home-search-mode">
               {{ store.searchScope === 'all' ? '全源流式搜索' : '当前源搜索' }}
             </span>
+            <label class="strict-search-toggle" title="严格匹配名称">
+              <input type="checkbox" v-model="store.strictSearch" @change="store.persistSettings()" />
+              <span>严格</span>
+            </label>
           </div>
         </div>
 

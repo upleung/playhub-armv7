@@ -138,14 +138,27 @@ export function sanitizePlayableUrl(value) {
     return ''
   }
   const raw = String(value).trim()
-  const match = raw.match(/^[^,]{1,30}[,](.+)$/)
-  if (!match) {
+  if (!raw) return raw
+
+  // Direct URL — return as-is
+  if (hasPlayableScheme(raw) && raw.includes('/')) {
     return raw
   }
-  const candidate = match[1]?.trim() || ''
-  if (/^(https?:\/\/|rtmp:\/\/|rtsp:\/\/|ftp:\/\/|magnet:|thunder:|ed2k:\/\/|\/\/)/i.test(candidate)) {
-    return candidate
+
+  // Split by TVBox separator characters and find the URL part
+  // Order matters: try @ first (most common TVBox format), then comma, then others
+  const separators = ['@', ',', '，', '#', '|', ';', '~']
+  for (const sep of separators) {
+    if (!raw.includes(sep)) continue
+    const parts = raw.split(sep)
+    for (const part of parts) {
+      const trimmed = part.trim()
+      if (trimmed && hasPlayableScheme(trimmed) && trimmed.includes('/')) {
+        return trimmed
+      }
+    }
   }
+
   return raw
 }
 

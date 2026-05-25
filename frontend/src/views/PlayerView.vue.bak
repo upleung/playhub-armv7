@@ -50,63 +50,19 @@ async function loadPlayback() {
     return
   }
 
-  // Wait for config load to finish before making API calls.
-  // On page refresh, bootstrap→loadConfig and loadPlayback start simultaneously
-  // from different onMounted hooks. loadConfig clears sources/currentDetail, so
-  // we must wait for it to complete first.
-  const waitStart = Date.now()
-  while (store.loading.config || (!store.bootstrapped && store.configUrl)) {
-    await new Promise((r) => setTimeout(r, 50))
-    if (Date.now() - waitStart > 15000) break
-  }
-  console.log('[PlayerView] ready, elapsed=' + (Date.now() - waitStart) + 'ms, sources=' + store.sources.length + ', config=' + !!store.config)
-
+  const hasDetail = store.currentDetail?.sourceUid === sourceUid && store.currentDetail?.id === vodId
   const resumeEntry = store.getHistoryEntry(sourceUid, vodId)
-  // Always resume from last watched position, regardless of entry method
-  // (search, history, detail page — all should pick up where user left off)
-  startTime.value = resumeEntry?.currentTime || 0
+  startTime.value = route.query.resume === '1' && resumeEntry?.currentTime ? resumeEntry.currentTime : 0
 
-  const sameVideo =
-    store.currentPlayback?.sourceUid === sourceUid && store.currentPlayback?.vodId === vodId
-  if (!sameVideo) {
-    store.clearCurrentPlayback()
-  }
-
+  store.clearCurrentPlayback()
   try {
-    const sameDetail = store.currentDetail?.sourceUid === sourceUid && store.currentDetail?.id === vodId
-    console.log('[PlayerView] sameDetail=' + sameDetail + ' sameVideo=' + sameVideo)
-    const detail = sameDetail ? store.currentDetail : await store.ensureDetail(sourceUid, vodId)
-    console.log('[PlayerView] detail=' + !!detail + ' title=' + detail?.title)
-
-    const isSameEpisode =
-      sameVideo &&
-      store.currentPlayback?.flagName === route.query.flag &&
-      String(store.currentPlayback?.episodeIndex) === String(route.query.episode)
-    const historyUrl = resumeEntry?.playUrl
-    console.log('[PlayerView] historyUrl=' + !!historyUrl + ' isSameEpisode=' + isSameEpisode + ' startTime=' + startTime.value)
-    if (!sameVideo && !isSameEpisode && historyUrl) {
-      store.setCurrentPlaybackQuick({
-        sourceUid,
-        vodId,
-        detail,
-        flagName: route.query.flag || resumeEntry?.playFlag,
-        episodeIndex: route.query.episode != null ? Number(route.query.episode) : (resumeEntry?.playIndex ?? 0),
-        episodeName: resumeEntry?.episodeName || '',
-        episodeId: resumeEntry?.episodeId || '',
-        url: historyUrl,
-      })
-      console.log('[PlayerView] setCurrentPlaybackQuick done')
+    if (!hasDetail) {
+      await store.ensureDetail(sourceUid, vodId, { force: true })
     }
-
-    console.log('[PlayerView] calling playEpisode...')
     await store.playEpisode(sourceUid, vodId, route.query.flag, route.query.episode, {
-      useStoredResume: true,
+      useStoredResume: route.query.resume === '1',
     })
-    // Restore startTime after playEpisode clears and recreates currentPlayback
-    startTime.value = resumeEntry?.currentTime || 0
-    console.log('[PlayerView] playEpisode success, startTime=' + startTime.value)
-  } catch (err) {
-    console.error('[PlayerView] loadPlayback failed:', err)
+  } catch {
     playbackError.value = true
   }
 }
@@ -130,33 +86,17 @@ function switchEpisode(flagName, episodeIndex) {
   })
 }
 
-let autoRetrying = false
-
 function handlePlayerError() {
-  if (autoRetrying || playbackError.value) {
+  if (playbackError.value) {
     return
   }
-  // Auto-retry once: re-parse the current episode without showing error state
-  autoRetrying = true
+  playbackError.value = true
   ElMessage({
-    type: 'info',
-    message: '播放地址可能已过期，正在自动重新解析…',
-    duration: 2000,
+    type: 'warning',
+    message: '播放器加载失败，可以尝试重新解析当前剧集。',
+    duration: 2600,
     grouping: true,
     showClose: true,
-  })
-  store.playEpisode(sourceUidRef.value, vodIdRef.value, route.query.flag, route.query.episode).then(() => {
-    autoRetrying = false
-  }).catch(() => {
-    autoRetrying = false
-    playbackError.value = true
-    ElMessage({
-      type: 'warning',
-      message: '重新解析失败，请手动重试或切换线路。',
-      duration: 2600,
-      grouping: true,
-      showClose: true,
-    })
   })
 }
 

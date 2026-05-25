@@ -4,6 +4,8 @@ import com.github.catvod.crawler.Spider;
 import com.github.catvod.crawler.SpiderApi;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -72,6 +74,7 @@ import java.util.stream.Collectors;
 @Service
 public class JarSpiderService implements DisposableBean, InitializingBean {
 
+    private static final Logger log = LoggerFactory.getLogger(JarSpiderService.class);
     private static final AtomicInteger SPIDER_THREAD_COUNTER = new AtomicInteger();
 
     private static final Pattern PLAY_URL_PREFIX_PATTERN = Pattern.compile("^[^,，]{1,30}[,，](.+)$");
@@ -100,14 +103,20 @@ public class JarSpiderService implements DisposableBean, InitializingBean {
     @Value("${app.spider-operation-queue-capacity:8}")
     private int spiderOperationQueueCapacity;
 
-    private final ConcurrentHashMap<String, URLClassLoader> classLoaderMap = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, Object> spiderMap = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, Path> dexConvertedJarMap = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, Path> runtimePreparedJarMap = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, Method> proxyMethodMap = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, String> spiderRuntimeKeyMap = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, String> siteRuntimeKeyMap = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, String> recentProxyRuntimeKeyMap = new ConcurrentHashMap<>();
+    @Value("${app.spider-cache-max-classloaders:12}")
+    private int spiderCacheMaxClassloaders;
+
+    @Value("${app.spider-cache-max-spiders:48}")
+    private int spiderCacheMaxSpiders;
+
+    private BoundedCache<String, URLClassLoader> classLoaderMap;
+    private BoundedCache<String, Object> spiderMap;
+    private BoundedCache<String, Path> dexConvertedJarMap;
+    private BoundedCache<String, Path> runtimePreparedJarMap;
+    private BoundedCache<String, Method> proxyMethodMap;
+    private BoundedCache<String, String> spiderRuntimeKeyMap;
+    private BoundedCache<String, String> siteRuntimeKeyMap;
+    private BoundedCache<String, String> recentProxyRuntimeKeyMap;
     private ExecutorService spiderOperationExecutor;
     private ThreadPoolExecutor spiderOperationThreadPool;
     private final Application androidApplication = new Application();
@@ -146,6 +155,25 @@ public class JarSpiderService implements DisposableBean, InitializingBean {
         executor.allowCoreThreadTimeOut(false);
         this.spiderOperationThreadPool = executor;
         this.spiderOperationExecutor = executor;
+
+        int maxClassloaders = Math.max(4, spiderCacheMaxClassloaders);
+        int maxSpiders = Math.max(8, spiderCacheMaxSpiders);
+        this.classLoaderMap = new BoundedCache<>(maxClassloaders, (key, loader) -> closeLoader(loader));
+        this.spiderMap = new BoundedCache<>(maxSpiders);
+        this.dexConvertedJarMap = new BoundedCache<>(maxClassloaders);
+        this.runtimePreparedJarMap = new BoundedCache<>(maxClassloaders);
+        this.proxyMethodMap = new BoundedCache<>(maxClassloaders * 2);
+        this.spiderRuntimeKeyMap = new BoundedCache<>(maxSpiders * 2);
+        this.siteRuntimeKeyMap = new BoundedCache<>(maxSpiders * 3);
+        this.recentProxyRuntimeKeyMap = new BoundedCache<>(maxClassloaders);
+    }
+
+    private void closeLoader(URLClassLoader loader) {
+        if (loader == null) return;
+        try {
+            loader.close();
+        } catch (Exception ignore) {
+        }
     }
 
     private String normalizeSessionId(String sessionId) {
@@ -167,7 +195,10 @@ public class JarSpiderService implements DisposableBean, InitializingBean {
     }
 
     public JsonNode home(String sessionId, SiteDefinition site, boolean filter) {
+        long t0 = System.currentTimeMillis();
+        DiagLog.step(log, "JAR home 开始  site=" + site.getName() + " key=" + site.getKey(), t0);
         if (scriptSpiderService.supports(site)) {
+            DiagLog.step(log, "JAR home 转发到ScriptSpiderService", t0);
             return scriptSpiderService.home(site, filter);
         }
         return executeWithFallback(site,
@@ -191,28 +222,44 @@ public class JarSpiderService implements DisposableBean, InitializingBean {
     }
 
     private JsonNode loadHomeNode(Object spider, SiteDefinition site, boolean filter) {
-        JsonNode home = readJson(invokeHomeContent(spider, filter));
+        long t0 = System.currentTimeMillis();
+        DiagLog.step(log, "JAR loadHomeNode 开始  site=" + site.getName());
+        String homeContentRaw = invokeHomeContent(spider, filter);
+        DiagLog.step(log, "JAR invokeHomeContent 返回  rawLen=" + (homeContentRaw != null ? homeContentRaw.length() : 0), t0);
+        JsonNode home = readJson(homeContentRaw);
         if (isHomeEmpty(home) && filter) {
-            home = readJson(invokeHomeContent(spider, false));
+            DiagLog.step(log, "JAR homeContent filter=true结果为空, 重试filter=false", t0);
+            homeContentRaw = invokeHomeContent(spider, false);
+            DiagLog.step(log, "JAR invokeHomeContent(filter=false) 返回  rawLen=" + (homeContentRaw != null ? homeContentRaw.length() : 0), t0);
+            home = readJson(homeContentRaw);
         }
-        ObjectNode merged = normalizeHomeObject(home);
-        boolean needsVideoList = !merged.has("list") || !merged.get("list").isArray() || merged.get("list").isEmpty();
+        ObjectNode result = toObjectNode(home);
+        boolean needsVideoList = !result.has("list") || !result.get("list").isArray() || result.get("list").isEmpty();
         if (isHomeEmpty(home) || needsVideoList) {
-            JsonNode videoNode = readJson(invokeHomeVideoContent(spider));
+            DiagLog.step(log, "JAR home list为空, 尝试homeVideoContent", t0);
+            String videoRaw = invokeHomeVideoContent(spider);
+            DiagLog.step(log, "JAR invokeHomeVideoContent 返回  rawLen=" + (videoRaw != null ? videoRaw.length() : 0), t0);
+            JsonNode videoNode = readJson(videoRaw);
             if (videoNode != null && videoNode.isObject() && videoNode.has("list") && videoNode.get("list").isArray()) {
-                merged.set("list", videoNode.get("list"));
+                result.set("list", videoNode.get("list"));
             } else if (videoNode != null && videoNode.isArray()) {
-                merged.set("list", videoNode);
+                result.set("list", videoNode);
             }
-            home = merged;
         }
+        ensureHomeClassesFromSite(site, result);
+        if (!result.has("list") || !result.get("list").isArray()) {
+            result.set("list", JsonNodeFactory.instance.arrayNode());
+        }
+        int listSize = result.has("list") && result.get("list").isArray() ? result.get("list").size() : 0;
+        DiagLog.step(log, "JAR loadHomeNode 完成  listSize=" + listSize, t0);
+        return result;
+    }
 
-        ObjectNode normalized = normalizeHomeObject(home);
-        ensureHomeClassesFromSite(site, normalized);
-        if (!normalized.has("list") || !normalized.get("list").isArray()) {
-            normalized.set("list", JsonNodeFactory.instance.arrayNode());
+    private ObjectNode toObjectNode(JsonNode node) {
+        if (node != null && node.isObject()) {
+            return (ObjectNode) node;
         }
-        return normalized;
+        return JsonNodeFactory.instance.objectNode();
     }
 
     private boolean isHomeEmpty(JsonNode node) {
@@ -225,13 +272,6 @@ public class JarSpiderService implements DisposableBean, InitializingBean {
         boolean hasList = node.has("list") && node.get("list").isArray() && node.get("list").size() > 0;
         boolean hasClass = node.has("class") && node.get("class").isArray() && node.get("class").size() > 0;
         return !hasList && !hasClass;
-    }
-
-    private ObjectNode normalizeHomeObject(JsonNode node) {
-        if (node != null && node.isObject()) {
-            return ((ObjectNode) node).deepCopy();
-        }
-        return JsonNodeFactory.instance.objectNode();
     }
 
     private void ensureHomeClassesFromSite(SiteDefinition site, ObjectNode home) {
@@ -379,24 +419,64 @@ public class JarSpiderService implements DisposableBean, InitializingBean {
 
     private JsonNode executeWithFallback(SiteDefinition site, Supplier<JsonNode> localExecutor, Supplier<JsonNode> bridgeExecutor, boolean allowBridgeFallback) {
         try {
-            return localExecutor.get();
+            JsonNode result = localExecutor.get();
+            // If result is empty/useless and bridge is available, try bridge
+            if (isResultEmpty(result) && allowBridgeFallback && spiderBridgeService.enabled()) {
+                DiagLog.step(log, "JAR 本地结果为空, 尝试bridge回退");
+                try {
+                    JsonNode bridgeResult = bridgeExecutor.get();
+                    if (!isResultEmpty(bridgeResult)) {
+                        DiagLog.step(log, "JAR bridge回退成功");
+                        return bridgeResult;
+                    }
+                } catch (Throwable ex) {
+                    DiagLog.step(log, "JAR bridge回退也失败: " + ex.getMessage());
+                }
+            }
+            return result;
         } catch (IllegalStateException ex) {
             if (allowBridgeFallback && spiderBridgeService.enabled()) {
-                return bridgeExecutor.get();
+                DiagLog.step(log, "JAR 本地执行异常, 尝试bridge回退");
+                try {
+                    return bridgeExecutor.get();
+                } catch (Throwable bridgeEx) {
+                    DiagLog.step(log, "JAR bridge回退失败: " + bridgeEx.getMessage());
+                }
             }
             throw ex;
         }
     }
 
+    private boolean isResultEmpty(JsonNode node) {
+        if (node == null || !node.isObject()) return true;
+        boolean hasClass = node.has("class") && node.get("class").isArray() && node.get("class").size() > 0;
+        boolean hasList = node.has("list") && node.get("list").isArray() && node.get("list").size() > 0;
+        // Also check for _bridge_raw or raw (non-JSON responses wrapped as objects)
+        boolean isRaw = node.has("_bridge_raw") || (node.has("raw") && !node.has("list") && !node.has("class"));
+        return !hasClass && !hasList && !isRaw;
+    }
+
     private <T> T executeSpiderOperation(String sessionId, SiteDefinition site, String operationName, Function<Object, T> operation) {
+        long t0 = System.currentTimeMillis();
+        DiagLog.step(log, "JAR executeSpiderOperation 开始 op=" + operationName + " site=" + site.getKey());
         try {
-            return runSpiderOperationWithTimeout(site, operationName, () -> operation.apply(getOrCreateSpider(sessionId, site, false)));
+            Object spider = getOrCreateSpider(sessionId, site, false);
+            DiagLog.step(log, "JAR getOrCreateSpider 返回 (正常模式)", t0);
+            T result = runSpiderOperationWithTimeout(site, operationName, () -> operation.apply(spider));
+            DiagLog.step(log, "JAR executeSpiderOperation 完成 op=" + operationName, t0);
+            return result;
         } catch (Throwable ex) {
             if (!isJvmCompatibilityFailure(ex)) {
+                DiagLog.step(log, "JAR executeSpiderOperation 失败(非JVM兼容): " + ex.getMessage(), t0);
                 throw new IllegalStateException("Spider 调用失败: " + ex.getMessage(), ex);
             }
+            DiagLog.step(log, "JAR executeSpiderOperation JVM兼容失败, 重试兼容模式", t0);
             try {
-                return runSpiderOperationWithTimeout(site, operationName, () -> operation.apply(getOrCreateSpider(sessionId, site, true)));
+                Object spider = getOrCreateSpider(sessionId, site, true);
+                DiagLog.step(log, "JAR getOrCreateSpider 返回 (兼容模式)", t0);
+                T result = runSpiderOperationWithTimeout(site, operationName, () -> operation.apply(spider));
+                DiagLog.step(log, "JAR executeSpiderOperation 完成(兼容模式) op=" + operationName, t0);
+                return result;
             } catch (Throwable retry) {
                 if (retry instanceof RuntimeException runtimeException) {
                     throw runtimeException;
@@ -447,6 +527,7 @@ public class JarSpiderService implements DisposableBean, InitializingBean {
     }
 
     private Object getOrCreateSpider(String sessionId, SiteDefinition site, boolean forceJvmCompatible) {
+        long t0 = System.currentTimeMillis();
         if (!StringUtils.hasText(site.getApi())) {
             throw new IllegalArgumentException("site.api 为空");
         }
@@ -460,22 +541,79 @@ public class JarSpiderService implements DisposableBean, InitializingBean {
         }
         Object cached = spiderMap.get(spiderKey);
         if (cached != null) {
+            DiagLog.step(log, "JAR getOrCreateSpider 命中缓存", t0);
             return cached;
         }
 
-        Path jarPath = resolveJar(sessionId, site);
-        String className = "com.github.catvod.spider." + site.getApi().replace("csp_", "");
-        Path loadPath = jarPath;
-        if (isDexOnlyJar(jarPath)) {
-            loadPath = ensureDexJarConverted(jarPath, className);
+        DiagLog.step(log, "JAR getOrCreateSpider 缓存未命中  api=" + site.getApi());
+        String baseName = site.getApi().replace("csp_", "");
+
+        // Try multiple class name variants for Guard→non-Guard fallback
+        String[] classNames = buildClassNameCandidates(baseName);
+        Path jarPath = null;
+        Path chosenPath = null;
+        Object spider = null;
+        String lastError = "";
+
+        for (String className : classNames) {
+            DiagLog.step(log, "JAR 尝试加载 className=" + className);
+            try {
+                if (jarPath == null) {
+                    jarPath = resolveJar(sessionId, site);
+                    DiagLog.step(log, "JAR resolveJar 完成  path=" + jarPath, t0);
+                }
+                Path loadPath = jarPath;
+                if (isDexOnlyJar(jarPath)) {
+                    loadPath = ensureDexJarConverted(jarPath, className);
+                }
+                chosenPath = forceJvmCompatible ? ensureJvmCompatibleJar(loadPath) : loadPath;
+                spider = instantiateSpider(chosenPath, className, site);
+                DiagLog.step(log, "JAR instantiateSpider 成功  className=" + className, t0);
+                break;
+            } catch (Throwable ex) {
+                String msg = ex.getMessage() != null ? ex.getMessage() : ex.getClass().getName();
+                lastError = className + " -> " + (msg.length() > 60 ? msg.substring(0, 60) : msg);
+                DiagLog.step(log, "JAR className尝试失败: " + lastError);
+            }
         }
-        Path chosenPath = forceJvmCompatible ? ensureJvmCompatibleJar(loadPath) : loadPath;
-        Object spider = instantiateSpider(chosenPath, className, site);
+
+        if (spider == null) {
+            throw new IllegalStateException("创建 Spider 失败: all classNames failed. Last: " + lastError);
+        }
+
         String runtimeKey = chosenPath.toString();
         bindSiteRuntimeKey(sessionId, site, runtimeKey);
         spiderMap.put(spiderKey, spider);
         spiderRuntimeKeyMap.put(spiderKey, runtimeKey);
+        DiagLog.step(log, "JAR getOrCreateSpider 完成  spiderMapSize=" + spiderMap.size(), t0);
         return spider;
+    }
+
+    /**
+     * Build class name candidates for spider resolution.
+     * e.g. "WoGGGuard" → ["WoGGGuard", "WoGG", "Wogg", "WoGg"]
+     * This handles the Guard→non-Guard fallback and case variations.
+     */
+    private String[] buildClassNameCandidates(String baseName) {
+        String pkg = "com.github.catvod.spider.";
+        java.util.List<String> names = new java.util.ArrayList<>();
+        names.add(pkg + baseName);
+
+        // If name ends with "Guard", try stripping it
+        if (baseName.endsWith("Guard")) {
+            String stripped = baseName.substring(0, baseName.length() - "Guard".length());
+            if (!stripped.isEmpty()) {
+                names.add(pkg + stripped);
+                // Also try lowercase-first-letter variant (WoGG → Wogg)
+                if (stripped.length() > 1 && Character.isUpperCase(stripped.charAt(0))) {
+                    String lcFirst = Character.toLowerCase(stripped.charAt(0)) + stripped.substring(1);
+                    if (!lcFirst.equals(stripped)) {
+                        names.add(pkg + lcFirst);
+                    }
+                }
+            }
+        }
+        return names.toArray(new String[0]);
     }
 
     private String buildSpiderKey(String sessionId, SiteDefinition site) {
@@ -628,11 +766,15 @@ public class JarSpiderService implements DisposableBean, InitializingBean {
     }
 
     private void rewriteJarForJvm(Path sourceJar, Path outputJar) throws IOException {
+        long t0 = System.currentTimeMillis();
+        long sourceSize = Files.size(sourceJar);
+        DiagLog.step(log, "JAR rewriteJarForJvm 开始  sourceSize=" + sourceSize);
         Path parent = outputJar.getParent();
         if (parent != null) {
             Files.createDirectories(parent);
         }
         Path tempJar = Files.createTempFile(parent, "runtime-", ".jar");
+        int classCount = 0;
         try (JarFile jarFile = new JarFile(sourceJar.toFile());
              URLClassLoader resolveLoader = new URLClassLoader(new URL[]{sourceJar.toUri().toURL()}, Thread.currentThread().getContextClassLoader());
              BufferedOutputStream out = new BufferedOutputStream(Files.newOutputStream(tempJar));
@@ -652,17 +794,23 @@ public class JarSpiderService implements DisposableBean, InitializingBean {
                 try (InputStream in = jarFile.getInputStream(entry)) {
                     if (entry.getName().endsWith(".class")) {
                         jarOut.write(rewriteClassForJvm(in.readAllBytes(), resolveLoader));
+                        classCount++;
                     } else {
                         in.transferTo(jarOut);
                     }
                 }
                 jarOut.closeEntry();
+                if (classCount > 0 && classCount % 500 == 0) {
+                    DiagLog.step(log, "JAR rewriteJarForJvm 进度  classesRewritten=" + classCount, t0);
+                }
             }
         } catch (Throwable ex) {
             Files.deleteIfExists(tempJar);
             throw ex;
         }
         Files.move(tempJar, outputJar, StandardCopyOption.REPLACE_EXISTING);
+        DiagLog.step(log, "JAR rewriteJarForJvm 完成  classesRewritten=" + classCount
+                + " outputSize=" + Files.size(outputJar), t0);
     }
 
     private boolean isSignatureEntry(String entryName) {
@@ -1160,6 +1308,14 @@ public class JarSpiderService implements DisposableBean, InitializingBean {
         if (spiderOperationExecutor != null) {
             spiderOperationExecutor.shutdownNow();
         }
+        if (classLoaderMap != null) classLoaderMap.clear();
+        if (spiderMap != null) spiderMap.clear();
+        if (dexConvertedJarMap != null) dexConvertedJarMap.clear();
+        if (runtimePreparedJarMap != null) runtimePreparedJarMap.clear();
+        if (proxyMethodMap != null) proxyMethodMap.clear();
+        if (spiderRuntimeKeyMap != null) spiderRuntimeKeyMap.clear();
+        if (siteRuntimeKeyMap != null) siteRuntimeKeyMap.clear();
+        if (recentProxyRuntimeKeyMap != null) recentProxyRuntimeKeyMap.clear();
     }
 
     private String spiderExecutorStats() {
@@ -1884,6 +2040,7 @@ public class JarSpiderService implements DisposableBean, InitializingBean {
     }
 
     private Path resolveJar(String sessionId, SiteDefinition site) {
+        long t0 = System.currentTimeMillis();
         String jarSpec = site.getJar();
         if (!StringUtils.hasText(jarSpec)) {
             ConfigPayload payload = configService.getPayload(sessionId);
@@ -1897,6 +2054,7 @@ public class JarSpiderService implements DisposableBean, InitializingBean {
 
         JarSpec resolvedSpec = parseJarSpec(jarSpec);
         String jarUrl = resolvedSpec.url();
+        DiagLog.step(log, "JAR resolveJar 开始  jarUrl=" + jarUrl);
         try {
             String hash = md5(jarUrl + "|" + resolvedSpec.expectedMd5() + "|" + resolvedSpec.imageWrapped());
             Path jarDir = configService.getCacheDir().resolve("jars");
@@ -1907,6 +2065,7 @@ public class JarSpiderService implements DisposableBean, InitializingBean {
                     && Files.size(jarPath) > 0
                     && matchesExpectedMd5(jarPath, resolvedSpec.expectedMd5())
                     && isUsableSpiderJar(jarPath)) {
+                DiagLog.step(log, "JAR resolveJar 命中缓存  size=" + Files.size(jarPath), t0);
                 return jarPath;
             }
             Files.deleteIfExists(jarPath);
@@ -1915,20 +2074,24 @@ public class JarSpiderService implements DisposableBean, InitializingBean {
                     && Files.size(legacyJarPath) > 0
                     && matchesExpectedMd5(legacyJarPath, resolvedSpec.expectedMd5())
                     && isUsableSpiderJar(legacyJarPath)) {
+                DiagLog.step(log, "JAR resolveJar 命中旧缓存", t0);
                 return legacyJarPath;
             }
             if (!jarPath.equals(legacyJarPath)) {
                 Files.deleteIfExists(legacyJarPath);
             }
 
+            DiagLog.step(log, "JAR resolveJar 缓存未命中, 开始下载...", t0);
             boolean downloaded = downloadJar(resolvedSpec, jarPath);
             if (!downloaded && jarUrl.contains("/json/jar/")) {
                 String fallbackUrl = jarUrl.replace("/json/jar/", "/jar/");
+                DiagLog.step(log, "JAR resolveJar 主URL下载失败, 尝试fallback URL", t0);
                 downloaded = downloadJar(new JarSpec(fallbackUrl, resolvedSpec.expectedMd5(), resolvedSpec.imageWrapped()), jarPath);
             }
             if (!downloaded) {
                 throw new IllegalStateException("下载 jar 失败, status=404");
             }
+            DiagLog.step(log, "JAR resolveJar 下载完成  size=" + Files.size(jarPath), t0);
             if (!matchesExpectedMd5(jarPath, resolvedSpec.expectedMd5())) {
                 Files.deleteIfExists(jarPath);
                 throw new IllegalStateException("jar md5 mismatch: " + resolvedSpec.expectedMd5());
@@ -1940,7 +2103,9 @@ public class JarSpiderService implements DisposableBean, InitializingBean {
     }
 
     private boolean downloadJar(JarSpec jarSpec, Path jarPath) {
+        long t0 = System.currentTimeMillis();
         try {
+            DiagLog.step(log, "JAR downloadJar 开始下载  url=" + jarSpec.url());
             HttpURLConnection conn = (HttpURLConnection) URI.create(jarSpec.url()).toURL().openConnection();
             conn.setRequestMethod("GET");
             conn.setConnectTimeout(10000);
@@ -1949,14 +2114,18 @@ public class JarSpiderService implements DisposableBean, InitializingBean {
             conn.connect();
             int code = conn.getResponseCode();
             if (code < 200 || code >= 300) {
+                DiagLog.step(log, "JAR downloadJar HTTP状态错误 code=" + code, t0);
                 return false;
             }
             try (InputStream inputStream = conn.getInputStream()) {
                 byte[] body = inputStream.readAllBytes();
+                DiagLog.step(log, "JAR downloadJar 下载完成 bodySize=" + body.length, t0);
                 byte[] jarBytes = jarSpec.imageWrapped() ? unwrapImageJar(body) : body;
                 if (jarBytes == null || jarBytes.length == 0 || !looksLikeJar(jarBytes)) {
+                    DiagLog.step(log, "JAR downloadJar 数据无效(非JAR格式)", t0);
                     return false;
                 }
+                DiagLog.step(log, "JAR downloadJar 写入磁盘  jarSize=" + jarBytes.length, t0);
                 Files.createDirectories(jarPath.getParent());
                 Path tempJar = Files.createTempFile(jarPath.getParent(), "spider-", ".jar");
                 try {
@@ -2090,7 +2259,28 @@ public class JarSpiderService implements DisposableBean, InitializingBean {
         return classLoaderMap.computeIfAbsent(jarPath.toString(), k -> {
             try {
                 URL url = jarPath.toUri().toURL();
-                URLClassLoader loader = new URLClassLoader(new URL[]{url}, Thread.currentThread().getContextClassLoader());
+                ClassLoader parent = Thread.currentThread().getContextClassLoader();
+                // Parent-first for safety: JAR classes reference our stubs.
+                // Child-first for com.github.catvod.spider only if the class
+                // doesn't exist on parent (catches Init/Proxy overrides).
+                URLClassLoader loader = new URLClassLoader(new URL[]{url}, parent) {
+                    @Override
+                    protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+                        synchronized (getClassLoadingLock(name)) {
+                            Class<?> c = findLoadedClass(name);
+                            if (c != null) return c;
+                            // Parent-first for everything by default
+                            try {
+                                c = getParent().loadClass(name);
+                                if (c != null) return c;
+                            } catch (ClassNotFoundException ignored) {
+                            }
+                            c = findClass(name);
+                            if (resolve) resolveClass(c);
+                            return c;
+                        }
+                    }
+                };
                 try {
                     initializeJarRuntime(loader, k);
                 } catch (Throwable ex) {
@@ -2616,21 +2806,31 @@ public class JarSpiderService implements DisposableBean, InitializingBean {
             return input;
         }
         String url = input.trim();
-        Matcher matcher = PLAY_URL_PREFIX_PATTERN.matcher(url);
-        if (!matcher.matches()) {
+
+        // Direct URL — return as-is
+        if (startsWithPlayableScheme(url) && url.contains("/")) {
             return url;
         }
 
-        String candidate = matcher.group(1).trim();
-        if (startsWithPlayableScheme(candidate)) {
-            return candidate;
+        // Split by TVBox separator characters and find the URL part
+        String[] separators = {"@", ",", "，", "#", "|", ";", "~"};
+        for (String sep : separators) {
+            if (!url.contains(sep)) continue;
+            String[] parts = url.split(Pattern.quote(sep));
+            for (String part : parts) {
+                String trimmed = part.trim();
+                if (!trimmed.isEmpty() && startsWithPlayableScheme(trimmed) && trimmed.contains("/")) {
+                    return trimmed;
+                }
+            }
         }
+
         return url;
     }
 
     private JsonNode finalizePlayNode(SiteDefinition site, JsonNode node, String flag, String normalizedId) {
         ObjectNode output = node != null && node.isObject()
-                ? ((ObjectNode) node).deepCopy()
+                ? (ObjectNode) node
                 : JsonNodeFactory.instance.objectNode();
         if (!output.has("flag")) {
             output.put("flag", flag);

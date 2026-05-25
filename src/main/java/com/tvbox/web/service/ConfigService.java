@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tvbox.web.model.ConfigPayload;
 import com.tvbox.web.model.SiteDefinition;
 import jakarta.annotation.PostConstruct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -33,6 +35,7 @@ import java.util.regex.Pattern;
 @Service
 public class ConfigService {
 
+    private static final Logger log = LoggerFactory.getLogger(ConfigService.class);
     private static final Pattern WRAPPED_BASE64_PATTERN = Pattern.compile("[A-Za-z0-9]{8}\\*\\*");
     private static final String PK_SEPARATOR = ";pk;";
     private static final String CLAN_PREFIX = "clan://";
@@ -41,7 +44,7 @@ public class ConfigService {
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
     private final AppPathsService appPathsService;
-    private final Map<String, ConfigSessionState> sessionStateMap = new ConcurrentHashMap<>();
+    private final BoundedCache<String, ConfigSessionState> sessionStateMap = new BoundedCache<>(32);
 
     private volatile Path cacheDir;
 
@@ -71,12 +74,22 @@ public class ConfigService {
     }
 
     public synchronized ConfigPayload loadConfig(String sessionId, String rawUrl) {
+        long t0 = System.currentTimeMillis();
+        DiagLog.step(log, "CFG loadConfig 开始  url=" + rawUrl);
         ResolvedConfigTarget target = resolveConfigTarget(rawUrl);
+        DiagLog.step(log, "CFG resolveConfigTarget 完成  fetchUrl=" + target.fetchUrl(), t0);
         String text = fetchText(target.fetchUrl());
+        DiagLog.step(log, "CFG fetchText 返回  textLen=" + (text != null ? text.length() : 0), t0);
         text = decodeWrappedIfNeeded(text, target.configKey());
+        DiagLog.step(log, "CFG decodeWrappedIfNeeded 完成  textLen=" + (text != null ? text.length() : 0), t0);
         text = fixContentPath(target.fetchUrl(), text);
+        DiagLog.step(log, "CFG fixContentPath 完成", t0);
         try {
+            DiagLog.step(log, "CFG 开始 objectMapper.readValue 解析JSON...");
             ConfigPayload parsed = objectMapper.readValue(text, ConfigPayload.class);
+            DiagLog.step(log, "CFG JSON解析完成  sites=" + (parsed.getSites() != null ? parsed.getSites().size() : 0)
+                    + " parses=" + (parsed.getParses() != null ? parsed.getParses().size() : 0)
+                    + " lives=" + (parsed.getLives() != null ? parsed.getLives().size() : 0), t0);
             ConfigSessionState state = stateFor(sessionId);
             state.siteMap.clear();
             if (parsed.getSites() != null) {
@@ -99,6 +112,7 @@ public class ConfigService {
             }
             state.payload = parsed;
             state.configUrl = target.originalUrl();
+            DiagLog.step(log, "CFG loadConfig 完成 siteMapSize=" + state.siteMap.size(), t0);
             return parsed;
         } catch (Exception ex) {
             throw new IllegalStateException("配置解析失败: " + ex.getMessage(), ex);
