@@ -29,7 +29,7 @@ RUN apt-get update \
 
 WORKDIR /opt/playhub
 
-COPY target/tvbox-webapp-*.jar app/playhub.jar
+COPY target/playhub-*.jar app/playhub.jar
 COPY scripts/ scripts/
 COPY tools/dex-tools-v2.4/ tools/dex-tools-v2.4/
 COPY docker/application.yml config/application.yml
