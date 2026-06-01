@@ -18,7 +18,7 @@ tools/*
 # Keep built JAR
 !target/
 target/*
-!target/tvbox-webapp-*.jar
+!target/playhub-*.jar
 
 # Keep scripts (JS/Python spider runtimes)
 !scripts/
