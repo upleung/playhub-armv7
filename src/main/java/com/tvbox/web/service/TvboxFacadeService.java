@@ -22,10 +22,26 @@ public class TvboxFacadeService {
 
     private static final Logger log = LoggerFactory.getLogger(TvboxFacadeService.class);
     private static final Pattern PLAY_URL_PREFIX_PATTERN = Pattern.compile("^[^,，]{1,30}[,，](.+)$");
+    private static final long PLAY_CACHE_TTL = 86400000L; // 1 day
 
     private final ConfigService configService;
     private final HttpSourceService httpSourceService;
     private final JarSpiderService jarSpiderService;
+    private final BoundedCache<String, CachedPlayResult> playCache = new BoundedCache<>(512);
+
+    private static class CachedPlayResult {
+        final JsonNode result;
+        final long timestamp;
+
+        CachedPlayResult(JsonNode result) {
+            this.result = result;
+            this.timestamp = System.currentTimeMillis();
+        }
+
+        boolean isExpired() {
+            return System.currentTimeMillis() - timestamp > PLAY_CACHE_TTL;
+        }
+    }
 
     public TvboxFacadeService(ConfigService configService,
                               HttpSourceService httpSourceService,
@@ -168,6 +184,7 @@ public class TvboxFacadeService {
 
     public JsonNode category(String sessionId, String key, String tid, String pg, boolean filter, Map<String, String> extend) {
         SiteDefinition site = getSite(sessionId, key);
+        log.info("[CATEGORY] key={} type={} api={} tid={} pg={} filter={}", key, site.getType(), site.getApi(), tid, pg, filter);
         if (site.getType() == 3) {
             return jarSpiderService.category(sessionId, site, tid, pg, filter, extend);
         }
@@ -178,7 +195,10 @@ public class TvboxFacadeService {
         if (extend != null) {
             params.putAll(extend);
         }
-        return httpSourceService.request(site, params);
+        log.info("[CATEGORY] HTTP request params={}", params);
+        JsonNode result = httpSourceService.request(site, params);
+        log.info("[CATEGORY] response keys={}", result.isObject() ? ((com.fasterxml.jackson.databind.node.ObjectNode) result).fieldNames() : "not-object");
+        return result;
     }
 
     public JsonNode detail(String key, String id) {
@@ -215,52 +235,143 @@ public class TvboxFacadeService {
         return searchAll(null, wd, quick);
     }
 
+    public void searchAllBackground(String sessionId, String wd, boolean quick,
+                                     ProgressTrackerService.ProgressInfo progress) {
+        long t0 = System.currentTimeMillis();
+        DiagLog.step(log, "FAC searchAllBackground 多线程入口 wd=" + wd);
+        ConfigPayload payload = getConfig(sessionId);
+
+        List<SiteDefinition> searchable = payload.getSites().stream()
+                .filter(s -> s != null && s.getSearchable() != 0)
+                .toList();
+
+        if (searchable.isEmpty()) {
+            if (progress != null) progress.setDone(true);
+            return;
+        }
+
+        java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newFixedThreadPool(
+                Math.min(searchable.size(), 6));
+        JsonNodeFactory factory = JsonNodeFactory.instance;
+
+        java.util.List<java.util.concurrent.CompletableFuture<Void>> futures = new java.util.ArrayList<>();
+
+        for (SiteDefinition site : searchable) {
+            futures.add(java.util.concurrent.CompletableFuture.runAsync(() -> {
+                if (progress != null) progress.setCurrentSource(site.getName());
+                try {
+                    JsonNode response = search(sessionId, site.getUid(), wd, quick);
+                    List<JsonNode> items = extractList(response);
+                    synchronized (progress) {
+                        for (JsonNode item : items) {
+                            ObjectNode row = (item != null && item.isObject())
+                                    ? ((ObjectNode) item).deepCopy()
+                                    : factory.objectNode();
+                            if (!item.isObject()) row.set("raw", item);
+                            row.put("source_uid", site.getUid());
+                            row.put("source_key", site.getApi());
+                            row.put("source_name", site.getName());
+                            row.put("source_type", site.getType());
+                            progress.addResult(row);
+                        }
+                        progress.incrementCompleted();
+                    }
+                } catch (Throwable ex) {
+                    synchronized (progress) {
+                        ObjectNode err = factory.objectNode();
+                        err.put("source_uid", site.getUid());
+                        err.put("source_name", site.getName());
+                        err.put("error", ex.getMessage() == null ? "unknown" : ex.getMessage());
+                        progress.addResult(err);
+                        progress.incrementCompleted();
+                        progress.incrementFailed();
+                    }
+                }
+            }, executor));
+        }
+
+        for (java.util.concurrent.CompletableFuture<Void> f : futures) {
+            try {
+                f.get(8, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (Exception e) {
+                // timeout, skip
+            }
+        }
+        executor.shutdown();
+
+        int total = progress != null ? progress.getResults().size() : 0;
+        DiagLog.step(log, "FAC searchAllBackground 完成 totalResults=" + total, t0);
+    }
+
     public JsonNode searchAll(String sessionId, String wd, boolean quick) {
+        long t0 = System.currentTimeMillis();
+        DiagLog.step(log, "FAC searchAll 多线程入口 wd=" + wd);
         ConfigPayload payload = getConfig(sessionId);
         ObjectNode root = JsonNodeFactory.instance.objectNode();
         ArrayNode list = root.putArray("list");
         ArrayNode errors = root.putArray("errors");
 
-        int searched = 0;
-        for (SiteDefinition site : payload.getSites()) {
-            if (site == null || site.getSearchable() == 0) {
-                continue;
-            }
-            searched++;
-            try {
-                JsonNode response = search(sessionId, site.getUid(), wd, quick);
-                List<JsonNode> items = extractList(response);
-                for (JsonNode item : items) {
-                    ObjectNode row;
-                    if (item != null && item.isObject()) {
-                        row = ((ObjectNode) item).deepCopy();
-                        row.put("source_uid", site.getUid());
-                        row.put("source_key", site.getApi());
-                        row.put("source_name", site.getName());
-                        row.put("source_type", site.getType());
-                    } else {
-                        row = JsonNodeFactory.instance.objectNode();
-                        row.set("raw", item);
-                        row.put("source_uid", site.getUid());
-                        row.put("source_key", site.getApi());
-                        row.put("source_name", site.getName());
-                        row.put("source_type", site.getType());
-                    }
-                    list.add(row);
-                }
-            } catch (Throwable ex) {
-                ObjectNode err = JsonNodeFactory.instance.objectNode();
-                err.put("source_uid", site.getUid());
-                err.put("source_key", site.getApi());
-                err.put("source_name", site.getName());
-                err.put("error", ex.getMessage() == null ? "unknown" : ex.getMessage());
-                errors.add(err);
-            }
+        List<SiteDefinition> searchable = payload.getSites().stream()
+                .filter(s -> s != null && s.getSearchable() != 0)
+                .toList();
+
+        if (searchable.isEmpty()) {
+            root.put("searched", 0);
+            root.put("hits", 0);
+            root.put("failed", 0);
+            return root;
         }
 
-        root.put("searched", searched);
+        java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newFixedThreadPool(
+                Math.min(searchable.size(), 6));
+
+        JsonNodeFactory factory = JsonNodeFactory.instance;
+        java.util.List<java.util.concurrent.CompletableFuture<Void>> futures = new java.util.ArrayList<>();
+
+        for (SiteDefinition site : searchable) {
+            futures.add(java.util.concurrent.CompletableFuture.runAsync(() -> {
+                try {
+                    JsonNode response = search(sessionId, site.getUid(), wd, quick);
+                    List<JsonNode> items = extractList(response);
+                    synchronized (list) {
+                        for (JsonNode item : items) {
+                            ObjectNode row = (item != null && item.isObject())
+                                    ? ((ObjectNode) item).deepCopy()
+                                    : factory.objectNode();
+                            if (!item.isObject()) row.set("raw", item);
+                            row.put("source_uid", site.getUid());
+                            row.put("source_key", site.getApi());
+                            row.put("source_name", site.getName());
+                            row.put("source_type", site.getType());
+                            list.add(row);
+                        }
+                    }
+                } catch (Throwable ex) {
+                    synchronized (errors) {
+                        ObjectNode err = factory.objectNode();
+                        err.put("source_uid", site.getUid());
+                        err.put("source_key", site.getApi());
+                        err.put("source_name", site.getName());
+                        err.put("error", ex.getMessage() == null ? "unknown" : ex.getMessage());
+                        errors.add(err);
+                    }
+                }
+            }, executor));
+        }
+
+        for (java.util.concurrent.CompletableFuture<Void> f : futures) {
+            try {
+                f.get(8, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (Exception e) {
+                // timeout, skip
+            }
+        }
+        executor.shutdown();
+
+        root.put("searched", searchable.size());
         root.put("hits", list.size());
         root.put("failed", errors.size());
+        DiagLog.step(log, "FAC searchAll 完成 hits=" + list.size() + " failed=" + errors.size(), t0);
         return root;
     }
 
@@ -269,39 +380,41 @@ public class TvboxFacadeService {
     }
 
     public JsonNode play(String sessionId, String key, String flag, String id) {
+        String cacheKey = key + "::" + flag + "::" + id;
+        CachedPlayResult cached = playCache.get(cacheKey);
+        if (cached != null && !cached.isExpired()) {
+            log.info("[PLAY] cache hit for key={} flag={} id={}", key, flag, id);
+            return cached.result;
+        }
+
         SiteDefinition site = getSite(sessionId, key);
         String normalizedId = sanitizePlayableUrl(id);
+        JsonNode result;
         if (site.getType() == 3) {
             List<String> vipFlags = getConfig(sessionId).getFlags();
-            return jarSpiderService.play(sessionId, site, flag, normalizedId, vipFlags);
-        }
-        JsonNode response = httpSourceService.request(site, mapOf("play", normalizedId, "flag", flag));
-        ObjectNode node;
-        if (response.isObject()) {
-            node = (ObjectNode) response;
+            result = jarSpiderService.play(sessionId, site, flag, normalizedId, vipFlags);
         } else {
-            node = JsonNodeFactory.instance.objectNode();
-            node.set("data", response);
+            JsonNode response = httpSourceService.request(site, mapOf("play", normalizedId, "flag", flag));
+            ObjectNode node;
+            if (response.isObject()) {
+                node = (ObjectNode) response;
+            } else {
+                node = JsonNodeFactory.instance.objectNode();
+                node.set("data", response);
+            }
+            if (!node.has("flag")) node.put("flag", flag);
+            if (!node.has("key")) node.put("key", normalizedId);
+            if (!node.has("url")) node.put("url", normalizedId);
+            if (!node.has("parse")) node.put("parse", 1);
+            if (!node.has("playUrl")) node.put("playUrl", site.getPlayUrl() == null ? "" : site.getPlayUrl());
+            if (node.has("url") && node.get("url").isTextual()) {
+                node.put("url", sanitizePlayableUrl(node.get("url").asText()));
+            }
+            result = node;
         }
-        if (!node.has("flag")) {
-            node.put("flag", flag);
-        }
-        if (!node.has("key")) {
-            node.put("key", normalizedId);
-        }
-        if (!node.has("url")) {
-            node.put("url", normalizedId);
-        }
-        if (!node.has("parse")) {
-            node.put("parse", 1);
-        }
-        if (!node.has("playUrl")) {
-            node.put("playUrl", site.getPlayUrl() == null ? "" : site.getPlayUrl());
-        }
-        if (node.has("url") && node.get("url").isTextual()) {
-            node.put("url", sanitizePlayableUrl(node.get("url").asText()));
-        }
-        return node;
+
+        playCache.put(cacheKey, new CachedPlayResult(result));
+        return result;
     }
 
     public Map<String, Object> health() {

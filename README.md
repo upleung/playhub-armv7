@@ -1,144 +1,145 @@
 <p align="center">
-  <h1 align="center">🎬 PlayHUB</h1>
-  <p align="center">
-    <strong>Box 配置的 Web 化播放器</strong> —— 基于 <a href="https://github.com/takagen99/TVBoxOSC">takagen99-TVBoxOSC</a> 的复刻
-  </p>
-</p>
-
-<p align="center">
-  <img src="https://img.shields.io/badge/Java-17+-orange?logo=java" alt="Java 17+">
+  <img src="https://img.shields.io/badge/Java-17+-orange?logo=openjdk" alt="Java 17+">
   <img src="https://img.shields.io/badge/Spring_Boot-3.x-green?logo=springboot" alt="Spring Boot">
-  <img src="https://img.shields.io/badge/Vue-3.x-4FC08D?logo=vue.js" alt="Vue 3">
-  <img src="https://img.shields.io/badge/Node-20+-339933?logo=node.js" alt="Node.js 20+">
-  <img src="https://img.shields.io/badge/Python-3.9+-blue?logo=python" alt="Python 3.9+">
+  <img src="https://img.shields.io/badge/React-18.x-61DAFB?logo=react" alt="React 18">
+  <img src="https://img.shields.io/badge/Ant_Design-5.x-1677FF?logo=antdesign" alt="Ant Design">
+  <img src="https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker" alt="Docker">
 </p>
+
+<h1 align="center">
+  <img src="https://raw.githubusercontent.com/twitter/twemoji/master/assets/svg/1f3ac.svg" width="40" />
+  PlayHub
+</h1>
 
 <p align="center">
-  <a href="#-特性">特性</a> •
-  <a href="#-快速开始">快速开始</a> •
+  <strong>AI 增强 · 多源聚合 · 影视播放平台</strong>
+</p>
+
+![项目访问预览](https://esa-bucket.humorously.cn/QQ20260601-173550.webp)
+
+<p align="center">
+  <a href="#-核心亮点">核心亮点</a> •
+  <a href="#-快速部署">快速部署</a> •
   <a href="#-使用指南">使用指南</a> •
-  <a href="#-注意事项">注意事项</a> •
-  <a href="#-致谢">致谢</a>
+  <a href="#-架构概览">架构概览</a>
 </p>
 
 ---
 
-## ✨ 特性
+## <img src="https://raw.githubusercontent.com/twitter/twemoji/master/assets/svg/2728.svg" width="24" /> 核心亮点
 
-- **🌐 前后端分离**  
-  Java (Spring Boot) 后端负责配置拉取、站点接口聚合、JAR 蜘蛛下载与反射调用；Vue3 前端提供流畅的交互体验。
+<table>
+  <tr>
+    <td align="center" width="33%">
+      <img src="https://raw.githubusercontent.com/twitter/twemoji/master/assets/svg/1f916.svg" width="48" />
+      <br /><strong>AI 智能聚合</strong>
+    </td>
+    <td align="center" width="33%">
+      <img src="https://raw.githubusercontent.com/twitter/twemoji/master/assets/svg/269b.svg" width="48" />
+      <br /><strong>多源并行搜索</strong>
+    </td>
+    <td align="center" width="33%">
+      <img src="https://raw.githubusercontent.com/twitter/twemoji/master/assets/svg/26a1.svg" width="48" />
+      <br /><strong>秒级响应</strong>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      告别逐个源翻找。AI 自动将同名影片的多个播放源合并在一起，并智能推荐最匹配的内容。<b>一次搜索，全网结果。</b>
+    </td>
+    <td>
+      后端多线程并发搜索所有数据源，前端轮询进度实时反馈。
+    </td>
+    <td>
+      播放地址缓存、详情缓存、智能增量更新。<b>点击即播，流畅不等待。</b>
+    </td>
+  </tr>
+</table>
 
-- **📺 完整的影视浏览功能**  
-  支持数据源切换、首页分类展示、关键词搜索、详情弹层、剧集选择与在线播放。
+<br />
 
-- **📦 JAR Spider 兼容**  
-  通过 `URLClassLoader` 在服务端动态加载并执行 TVBox 的 JAR 蜘蛛，无需 Android 环境即可使用大部分蜘蛛。
-
-- **💾 本地持久化**  
-  收藏与观看历史自动保存到浏览器 `localStorage`，无需登录即可下次继续追剧。
-
-- **⚡ 一键部署**  
-  提供预置的运行脚本，Java & Node 环境配置完成即可快速启动。
+<table>
+  <tr>
+    <td align="center" width="33%">
+      <img src="https://raw.githubusercontent.com/twitter/twemoji/master/assets/svg/1f4fa.svg" width="48" />
+      <br /><strong>直播聚合 &amp; EPG</strong>
+    </td>
+    <td align="center" width="33%">
+      <img src="https://raw.githubusercontent.com/twitter/twemoji/master/assets/svg/1f31f.svg" width="48" />
+      <br /><strong>AI 增强体验</strong>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      同名频道自动合并，多源互为备份。<b>EPG 节目单时间轴</b>，想看什么一目了然。
+    </td>
+    <td>
+      AI 不仅合并搜索结果，还能<b>整合多源影片详情</b>（导演、演员、简介），<b>清洗播放地址</b>去除无效参数。
+    </td>
+  </tr>
+</table>
 
 ---
 
-## 🚀 快速开始
+## <img src="https://raw.githubusercontent.com/twitter/twemoji/master/assets/svg/1f4e6.svg" width="24" /> 快速部署
 
-### 环境要求
-
-| 工具 / 运行时 | 最低版本 | 说明 |
-|---------------|----------|------|
-| **JDK**       | 17+      | 运行 Spring Boot 后端 |
-| **Node.js**   | 20+      | 构建 & 运行 Vue3 前端 |
-| **Python**    | 3.9+     | 部分 Spider Bridge 依赖 |
-| **Maven**     | 3.9+     | 调试时使用（可选） |
-
-### 🐳 Docker 部署（推荐）
-
-如果你已安装 Docker，可以使用预构建的镜像快速体验 PlayHUB，无需配置 Java、Node 等环境。
+### Docker（推荐）
 
 ```bash
-# 拉取镜像
 docker pull hurryos/playhub
-
-# 启动容器（默认使用 18080 端口）
 docker run -d --name playhub -p 18080:18080 hurryos/playhub
 ```
 
-启动后，访问 [http://localhost:18080](http://localhost:18080) 即可使用。  
-若需要自定义端口，请修改 `-p` 参数，例如 `-p 8080:18080`，然后访问 `http://localhost:8080`。
+启动后访问 **http://localhost:18080**
 
-### 本地运行（开发 / 自定义构建）
+> 自定义端口：`-p 8080:18080` → 访问 `http://localhost:8080`
 
-#### 1. 克隆仓库
+---
 
-```bash
-git clone https://github.com/your-username/PlayHUB.git
-cd PlayHUB
+## <img src="https://raw.githubusercontent.com/twitter/twemoji/master/assets/svg/1f4d6.svg" width="24" /> 使用指南
+
+### 1. 加载配置
+
+打开设置面板，输入 TVBox 配置 JSON 地址（支持历史记录自动保存）：
+
+```
+https://example.com/tvbox.json
 ```
 
-#### 2. 启动后端
+### 2. 搜索影片
 
-**方式一：一键脚本（推荐）**
-```bash
-# 运行 bin 目录下的对应系统脚本
-./bin/start.sh      # Linux / macOS
-# 或
-bin/start.bat       # Windows
-```
+在搜索框输入关键词，PlayHub 会**并行搜索所有数据源**，并以进度条展示实时进度。
 
-**方式二：Maven 调试模式**
-```bash
-mvn spring-boot:run
-```
+> 开启 **AI 增强**（设置 → AI 增强）后，AI 自动将同名的不同源合并，并推荐最符合搜索意图的影片。
 
-#### 3. 访问应用
+### 3. 播放体验
 
-启动成功后，访问以下地址：
+- 进入详情页，选择线路和集数
+- 播放器支持长按 3x 倍速、空格键暂停/播放
+- 浏览记录**自动保存**播放进度，下次进入直接跳转
 
-| 服务 | 地址 |
+### 4. 多源聚合（AI 增强）
+
+当 AI 增强开启时：
+
+| 阶段 | 说明 |
 |------|------|
-| 🖥️ 前端页面 | [http://localhost:18080/](http://localhost:18080/) |
-| 💚 健康检查 | [http://localhost:18080/api/health](http://localhost:18080/api/health) |
+| 🔍 搜索 | AI 分析所有结果，合并同名影片 |
+| 🎯 推荐 | AI 选出最符合搜索意图的影片 |
+| 📋 详情 | AI 整合多个源的导演、演员、简介 |
+| 🔗 播放 | AI 清洗 URL，去除无效参数 |
+
+### 5. 直播
+
+设置面板填写 M3U 直播源地址，PlayHub 自动合并同名频道、加载 EPG 节目单。
 
 ---
 
-## 📘 使用指南
+## <img src="https://raw.githubusercontent.com/twitter/twemoji/master/assets/svg/1f31f.svg" width="24" /> 致谢
 
-1. **🔗 加载配置**  
-   打开页面，在输入框中粘贴配置链接（如 `https://example.com/tvbox.json`），点击 **“加载配置”**。
-
-2. **📡 选择站点**  
-   从加载成功的站点列表中，点选你需要使用的数据源。
-
-3. **🏠 浏览首页**  
-   点击 **“加载首页”**，查看分类推荐内容，或使用顶部搜索栏查找影片。
-
-4. **🎥 在线播放**  
-   进入影片详情页，选择合适的播放源与剧集，开始播放。
-
-5. **❤️ 收藏 & 历史**  
-   喜欢的影片可一键收藏，观看记录自动生成。数据默认保存在浏览器 `localStorage`，清除缓存会丢失，请注意备份。
-
-6. **🎥 直播 & EPG**  
-   想要的直播一键直达，同类合并+自动换源，EPG支持随心所欲的观看想要的节目。
-
----
-
-## ⚠️ 注意事项
-
-- 当前后端 **优先支持 `type=3`（JAR Spider）** 以及提供标准 JSON 接口的站点。  
-
----
-
-## 🙏 致谢
-
-- [takagen99/TVBoxOSC](https://github.com/takagen99/TVBoxOSC) —— 本项目灵感与核心逻辑来源  
-
-> 如果 PlayHUB 对你有帮助，欢迎给个 ⭐ Star 鼓励一下！
-
----
+- [takagen99/TVBoxOSC](https://github.com/takagen99/TVBoxOSC) — 灵感与核心逻辑来源
 
 <p align="center">
-  <sub>Made with ❤️ by the community</sub>
+  <br />
+  <sub>如果 PlayHub 对你有用，欢迎给个 ⭐</sub>
 </p>

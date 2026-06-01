@@ -1,0 +1,285 @@
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --color-primary: #1677ff;
+  --color-primary-light: #4096ff;
+  --color-primary-dark: #0958d9;
+  --color-primary-bg: #e6f4ff;
+  --color-primary-bg-hover: #bae0ff;
+  --color-success: #52c41a;
+  --color-warning: #faad14;
+  --color-error: #ff4d4f;
+  --color-bg: #f5f8ff;
+  --color-bg-container: #ffffff;
+  --color-bg-elevated: #ffffff;
+  --color-text: #1a1a2e;
+  --color-text-secondary: #6b7280;
+  --color-text-tertiary: #9ca3af;
+  --color-border: #e5e7eb;
+  --color-border-light: #f0f0f0;
+  --color-shadow: rgba(0, 0, 0, 0.06);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
+  --font-family: 'Inter', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.25s ease;
+  --transition-slow: 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+html {
+  font-family: var(--font-family);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+.ant-layout {
+  background: var(--color-bg) !important;
+}
+
+.ant-layout-sider {
+  background: var(--color-bg-container) !important;
+  border-right: 1px solid var(--color-border-light) !important;
+}
+
+.ant-card {
+  border: 1px solid var(--color-border-light) !important;
+  box-shadow: 0 1px 3px var(--color-shadow) !important;
+  transition: all var(--transition-normal) !important;
+}
+
+.ant-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08) !important;
+  transform: translateY(-2px);
+}
+
+.ant-btn-primary {
+  box-shadow: 0 2px 8px rgba(22, 119, 255, 0.3) !important;
+}
+
+.ant-input-search .ant-input {
+  border-radius: 10px !important;
+}
+
+.ant-input-search .ant-input-search-button {
+  border-radius: 0 10px 10px 0 !important;
+}
+
+.ant-tabs .ant-tabs-tab {
+  border-radius: 8px !important;
+  padding: 8px 16px !important;
+  transition: all var(--transition-fast) !important;
+}
+
+.ant-tabs .ant-tabs-tab-active {
+  background: var(--color-primary-bg) !important;
+}
+
+.ant-tag {
+  border-radius: 6px !important;
+  padding: 2px 10px !important;
+  font-size: 13px !important;
+}
+
+.page-transition-enter {
+  opacity: 0;
+  transform: translateY(12px);
+}
+
+.page-transition-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.page-transition-exit {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.page-transition-exit-active {
+  opacity: 0;
+  transform: translateY(-8px);
+  transition: all 0.2s ease;
+}
+
+.video-card {
+  cursor: pointer;
+  overflow: hidden;
+  border-radius: var(--radius-lg) !important;
+  transition: all var(--transition-normal) !important;
+}
+
+.video-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(22, 119, 255, 0.12) !important;
+}
+
+.video-card .ant-card-cover img {
+  aspect-ratio: 2/3;
+  object-fit: cover;
+  transition: transform var(--transition-slow);
+}
+
+.video-card:hover .ant-card-cover img {
+  transform: scale(1.05);
+}
+
+.source-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  background: rgba(22, 119, 255, 0.9);
+  color: white;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  backdrop-filter: blur(8px);
+  z-index: 1;
+}
+
+.remarks-badge {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background: rgba(0, 0, 0, 0.7);
+  color: white;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  backdrop-filter: blur(8px);
+}
+
+.glass-panel {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px) saturate(1.8);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: var(--radius-lg);
+}
+
+.hero-gradient {
+  background: linear-gradient(135deg, #e6f4ff 0%, #f0f5ff 50%, #fff1f0 100%);
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, var(--color-primary), #722ed1);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: var(--radius-md);
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.stagger-1 { animation-delay: 0.05s; }
+.stagger-2 { animation-delay: 0.1s; }
+.stagger-3 { animation-delay: 0.15s; }
+.stagger-4 { animation-delay: 0.2s; }
+.stagger-5 { animation-delay: 0.25s; }
+.stagger-6 { animation-delay: 0.3s; }
+
+@media (max-width: 768px) {
+  .ant-layout-sider {
+    display: none !important;
+  }
+}
+
+@keyframes rainbow-flow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.rainbow-border {
+  position: relative;
+  overflow: hidden;
+}
+
+.rainbow-border::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  background: linear-gradient(90deg, #ff0000, #ff7700, #ffff00, #00ff00, #0077ff, #7700ff, #ff0077, #ff0000);
+  background-size: 400% 400%;
+  animation: rainbow-flow 3s linear infinite;
+  border-radius: inherit;
+  z-index: -1;
+}
+
+.rainbow-text {
+  background: linear-gradient(90deg, #ff0000, #ff7700, #ffff00, #00ff00, #0077ff, #7700ff, #ff0077, #ff0000);
+  background-size: 400% 400%;
+  animation: rainbow-flow 3s linear infinite;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}

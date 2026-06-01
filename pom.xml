@@ -10,11 +10,11 @@
         <relativePath/>
     </parent>
 
-    <groupId>com.tvbox</groupId>
-    <artifactId>tvbox-webapp</artifactId>
-    <version>1.0.0</version>
-    <name>tvbox-webapp</name>
-    <description>TVBox Web + Java backend</description>
+    <groupId>com.playhub</groupId>
+    <artifactId>playhub</artifactId>
+    <version>1.0.1</version>
+    <name>playhub</name>
+    <description>PlayHub - Video Aggregation Platform</description>
 
     <properties>
         <java.version>17</java.version>

@@ -11,12 +11,23 @@ spring:
   jackson:
     serialization:
       indent-output: true
+  session:
+    timeout: 1440m
 
 app:
   cache-dir: .cache/tvbox
   spider-bridge-url: "http://localhost:18081"
   node-command: "node"
   python-command: "C:\\Users\\Hurry\\AppData\\Roaming\\uv\\python\\cpython-3.14.4-windows-x86_64-none\\python.exe"
+
+logging:
+  level:
+    root: WARN
+    com.tvbox: INFO
+    org.springframework: WARN
+    org.apache: WARN
+  file:
+    path: .logs
 
 bridge:
   port: 18081

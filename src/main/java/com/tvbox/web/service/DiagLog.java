@@ -13,7 +13,7 @@ public final class DiagLog {
         long used = (rt.totalMemory() - rt.freeMemory()) / (1024 * 1024);
         long heap = rt.totalMemory() / (1024 * 1024);
         long max = rt.maxMemory() / (1024 * 1024);
-        log.info("[DIAG] {} | heapUsed={}MB heapCommitted={}MB heapMax={}MB", label, used, heap, max);
+        log.debug("[DIAG] {} | heapUsed={}MB heapCommitted={}MB heapMax={}MB", label, used, heap, max);
     }
 
     public static void step(Logger log, String label, long startMs) {
@@ -22,7 +22,7 @@ public final class DiagLog {
         long heap = rt.totalMemory() / (1024 * 1024);
         long max = rt.maxMemory() / (1024 * 1024);
         long elapsed = System.currentTimeMillis() - startMs;
-        log.info("[DIAG] {} | elapsed={}ms heapUsed={}MB heapCommitted={}MB heapMax={}MB",
+        log.debug("[DIAG] {} | elapsed={}ms heapUsed={}MB heapCommitted={}MB heapMax={}MB",
                 label, elapsed, used, heap, max);
     }
 }

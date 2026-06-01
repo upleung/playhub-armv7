@@ -1,27 +1,34 @@
-import { fileURLToPath, URL } from 'node:url'
-
 import { defineConfig } from 'vite'
-import vue from '@vitejs/plugin-vue'
-import vueDevTools from 'vite-plugin-vue-devtools'
+import react from '@vitejs/plugin-react'
 
 export default defineConfig({
-  plugins: [vue(), vueDevTools()],
-  resolve: {
-    alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
-    },
-  },
+  plugins: [react()],
   server: {
+    port: 3000,
     host: '0.0.0.0',
-    port: 5173,
     proxy: {
-      '/api': 'http://127.0.0.1:18080',
-      '/proxy': 'http://127.0.0.1:18080',
+      '/api': {
+        target: 'http://127.0.0.1:18080',
+        changeOrigin: true,
+      },
+      '/proxy': {
+        target: 'http://127.0.0.1:18080',
+        changeOrigin: true,
+      },
     },
   },
   build: {
     outDir: '../src/main/resources/static',
-    emptyOutDir: false,
-    sourcemap: false,
+    emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'antd-vendor': ['antd', '@ant-design/icons'],
+          'media-vendor': ['hls.js'],
+          'motion-vendor': ['framer-motion'],
+        },
+      },
+    },
   },
 })

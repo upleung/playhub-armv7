@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { message } from 'antd'
 
 const client = axios.create({
   baseURL: '/',
@@ -6,40 +7,49 @@ const client = axios.create({
   withCredentials: true,
 })
 
-function unwrapError(error) {
-  if (error?.response?.data?.message) {
-    return error.response.data.message
-  }
-  if (typeof error?.response?.data === 'string' && error.response.data) {
-    return error.response.data
-  }
-  return error?.message || '请求失败'
-}
+// Track if message handler is initialized
+let messageInitialized = false
 
-export function isAbortError(error) {
-  return axios.isCancel(error) || error?.name === 'CanceledError' || error?.code === 'ERR_CANCELED'
-}
+export function initMessageHandler() {
+  if (messageInitialized) return
+  messageInitialized = true
 
-export async function getJson(url, config = {}) {
-  try {
-    const { data } = await client.get(url, config)
-    return data
-  } catch (error) {
-    if (isAbortError(error)) {
-      throw error
+  client.interceptors.response.use(
+    (res) => res,
+    (err) => {
+      if (isAbortError(err)) return Promise.reject(err)
+
+      const msg =
+        err.response?.data?.message ||
+        (typeof err.response?.data === 'string' ? err.response.data : null) ||
+        err.message ||
+        '请求失败'
+
+      // Don't show toast for "未加载配置" etc managed by components
+      const status = err.response?.status || 0
+      if (status === 400 && msg.includes('配置')) {
+        // Config-related errors handled by components
+      } else {
+        message.error(msg, 3)
+      }
+
+      return Promise.reject(new Error(msg))
     }
-    throw new Error(unwrapError(error))
-  }
+  )
 }
 
-export async function postJson(url, body = {}, config = {}) {
-  try {
-    const { data } = await client.post(url, body, config)
-    return data
-  } catch (error) {
-    if (isAbortError(error)) {
-      throw error
-    }
-    throw new Error(unwrapError(error))
-  }
+export async function getJson(url, config) {
+  const res = await client.get(url, config)
+  return res.data
 }
+
+export async function postJson(url, body, config) {
+  const res = await client.post(url, body, config)
+  return res.data
+}
+
+export function isAbortError(err) {
+  return axios.isCancel(err) || err?.code === 'ERR_CANCELED'
+}
+
+export default client

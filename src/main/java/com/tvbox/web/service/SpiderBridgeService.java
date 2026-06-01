@@ -28,10 +28,7 @@ public class SpiderBridgeService {
 
     public SpiderBridgeService(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(10))
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .build();
+        this.httpClient = HttpClientFactory.create(10);
     }
 
     public boolean enabled() {

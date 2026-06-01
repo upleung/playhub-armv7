@@ -182,6 +182,7 @@ public class Init {
             this.client = java.net.http.HttpClient.newBuilder()
                     .connectTimeout(java.time.Duration.ofSeconds(10))
                     .followRedirects(java.net.http.HttpClient.Redirect.NORMAL)
+                    .sslContext(com.tvbox.web.service.HttpClientFactory.sslContext())
                     .build();
         }
 

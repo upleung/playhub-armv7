@@ -67,10 +67,7 @@ public class ScriptSpiderService implements InitializingBean {
         this.appPathsService = appPathsService;
         this.configService = configService;
         this.objectMapper = objectMapper;
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(15))
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .build();
+        this.httpClient = HttpClientFactory.create(15);
     }
 
     @Override

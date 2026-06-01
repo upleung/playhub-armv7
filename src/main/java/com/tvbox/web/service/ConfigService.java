@@ -44,7 +44,8 @@ public class ConfigService {
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
     private final AppPathsService appPathsService;
-    private final BoundedCache<String, ConfigSessionState> sessionStateMap = new BoundedCache<>(32);
+    private final BoundedCache<String, ConfigSessionState> sessionStateMap = new BoundedCache<>(128);
+    private volatile String lastConfigUrl;
 
     private volatile Path cacheDir;
 
@@ -54,10 +55,7 @@ public class ConfigService {
     public ConfigService(ObjectMapper objectMapper, AppPathsService appPathsService) {
         this.objectMapper = objectMapper;
         this.appPathsService = appPathsService;
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(10))
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .build();
+        this.httpClient = HttpClientFactory.create(10);
     }
 
     @PostConstruct
@@ -76,6 +74,7 @@ public class ConfigService {
     public synchronized ConfigPayload loadConfig(String sessionId, String rawUrl) {
         long t0 = System.currentTimeMillis();
         DiagLog.step(log, "CFG loadConfig 开始  url=" + rawUrl);
+        lastConfigUrl = rawUrl;
         ResolvedConfigTarget target = resolveConfigTarget(rawUrl);
         DiagLog.step(log, "CFG resolveConfigTarget 完成  fetchUrl=" + target.fetchUrl(), t0);
         String text = fetchText(target.fetchUrl());
@@ -124,7 +123,16 @@ public class ConfigService {
     }
 
     public ConfigPayload getPayload(String sessionId) {
-        return stateFor(sessionId).payload;
+        ConfigPayload payload = stateFor(sessionId).payload;
+        if (payload == null && lastConfigUrl != null) {
+            log.info("[CONFIG] Auto-reloading config for session {} from {}", sessionId, lastConfigUrl);
+            try {
+                payload = loadConfig(sessionId, lastConfigUrl);
+            } catch (Exception e) {
+                log.warn("[CONFIG] Auto-reload failed: {}", e.getMessage());
+            }
+        }
+        return payload;
     }
 
     public String getConfigUrl() {

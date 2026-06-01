@@ -61,10 +61,7 @@ public class LiveSourceService {
     private final BoundedCache<String, CacheEntry> cache = new BoundedCache<>(MAX_CACHE_ENTRIES);
 
     public LiveSourceService() {
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(10))
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .build();
+        this.httpClient = HttpClientFactory.create(10);
     }
 
     public Map<String, Object> bootstrap(String rawPlaylistUrl, String rawEpgUrl) {

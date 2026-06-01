@@ -29,10 +29,7 @@ public class HttpSourceService {
 
     public HttpSourceService(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(10))
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .build();
+        this.httpClient = HttpClientFactory.create(10);
     }
 
     public JsonNode request(SiteDefinition site, Map<String, String> params) {
@@ -41,9 +38,12 @@ public class HttpSourceService {
             throw new IllegalArgumentException("站点 api 为空");
         }
         URI uri = buildUri(site.getApi(), params);
-        DiagLog.step(log, "HTTP request 开始  uri=" + uri, t0);
+        log.info("[HTTP] request uri={}", uri);
         byte[] body = doGet(uri);
-        DiagLog.step(log, "HTTP doGet 返回  bodySize=" + (body != null ? body.length : 0), t0);
+        log.info("[HTTP] response bodySize={}", body != null ? body.length : 0);
+        if (body != null && body.length > 0 && body.length < 500) {
+            log.info("[HTTP] response body={}", new String(body, StandardCharsets.UTF_8));
+        }
         try {
             JsonNode result = objectMapper.readTree(body);
             DiagLog.step(log, "HTTP readTree 完成", t0);
