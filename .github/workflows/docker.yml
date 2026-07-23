@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 env:
-  IMAGE_NAME: mcgtekwrt/playhub
+  IMAGE_NAME: mcgtekwrt/playhub-armv7
 
 jobs:
   build-and-push:
