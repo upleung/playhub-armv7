@@ -16,7 +16,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up QEMU (for arm64 emulation)
+      - name: Set up QEMU (for arm emulation)
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
@@ -33,7 +33,8 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
+          # 在这里添加了 linux/arm/v7 架构支持
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
           tags: |
             ${{ env.IMAGE_NAME }}:latest
