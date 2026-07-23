@@ -86,8 +86,14 @@
 ### Docker（推荐）
 
 ```bash
-docker pull hurryos/playhub
-docker run -d --name playhub -p 18080:18080 hurryos/playhub
+docker pull mcgtekwrt/playhub
+docker run -d --name playhub -p 18080:18080 mcgtekwrt/playhub
+```
+
+```bash
+指定安装linux/arm/v7版本：
+docker pull --platform linux/arm/v7 mcgtekwrt/playhub:latest
+docker run -d --name playhub -p 18080:18080 mcgtekwrt/playhub
 ```
 
 启动后访问 **http://localhost:18080**
