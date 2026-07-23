@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 env:
-  IMAGE_NAME: hurryos/playhub
+  IMAGE_NAME: mcgtekwrt/playhub
 
 jobs:
   build-and-push:
