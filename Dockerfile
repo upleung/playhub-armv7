@@ -33,8 +33,6 @@ COPY target/playhub-*.jar app/playhub.jar
 COPY scripts/ scripts/
 COPY tools/dex-tools-v2.4/ tools/dex-tools-v2.4/
 COPY docker/application.yml config/application.yml
-# 【新增这一行】将根目录下的 spider.jar 复制到容器的工作目录下
-COPY spider.jar spider.jar
 
 RUN mkdir -p data/cache logs run .cache/android-cache .cache/android-external .cache/android-files \
     && chmod +x tools/dex-tools-v2.4/*.sh \
