@@ -5,13 +5,14 @@ FROM node:22-bookworm-slim
 LABEL org.opencontainers.image.title="playhub"
 LABEL org.opencontainers.image.description="TVBox Web frontend/backend runtime image"
 
+# 针对 arm/v7 设备（通常内存较小），适当调低默认 JVM 堆内存，防止 OOM
 ENV APP_PORT=18080 \
     APP_CACHE_DIR=/opt/playhub/data/cache \
     APP_LOG_FILE=/opt/playhub/logs/playhub.log \
     DEX2JAR_COMMAND=__AUTO__ \
     NODE_COMMAND=node \
     PYTHON_COMMAND=python3 \
-    JAVA_OPTS="-Xms64m -Xmx384m -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/opt/playhub/logs/" \
+    JAVA_OPTS="-Xms32m -Xmx256m -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/opt/playhub/logs/" \
     APP_SPIDER_OPERATION_MAX_CONCURRENCY=2 \
     APP_SCRIPT_MAX_CONCURRENCY=2
 
